@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Endless Block Studio - Custom 3D Editor</title>
+    <!-- Import Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Loading Overlay -->
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="loader-content">
+          <div class="loader-spinner"></div>
+          <div class="loader-text">Loading 3D Scene...</div>
+          <div id="loader-progress" class="loader-progress">0%</div>
+        </div>
+      </div>
+
+      <!-- Main Canvas Container -->
+      <div class="canvas-container">
+        <canvas id="webgl"></canvas>
+      </div>
+
+      <!-- UI Overlay -->
+      <div class="ui-overlay">
+        <!-- Top Navigation Header -->
+        <header class="header">
+          <div class="header-left">
+            <span class="logo-dot"></span>
+            <h1>ENDLESS BLOCK</h1>
+            <span class="badge">PRO</span>
+          </div>
+          <div class="header-center">
+            <span class="project-title" id="display-project-name">Project / Strange 19 (Remesh)</span>
+          </div>
+          <div class="header-right">
+            <button id="btn-reset" class="btn btn-secondary">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              Reset View
+            </button>
+          </div>
+        </header>
+
+        <!-- Left Toolbar: Controls -->
+        <aside class="sidebar sidebar-left">
+          <div class="sidebar-scroll">
+            
+            <!-- Section: Preset Pack -->
+            <div class="control-group">
+              <div class="control-group-header">
+                <h3>Presets</h3>
+              </div>
+              <div class="control-group-content presets-grid">
+                <button class="preset-card active" data-preset="glass-green">
+                  <div class="preset-preview" style="background: linear-gradient(135deg, #77ff00, #338800);"></div>
+                  <span>Glass Green</span>
+                </button>
+                <button class="preset-card" data-preset="liquid-chrome">
+                  <div class="preset-preview" style="background: linear-gradient(135deg, #e0e0e0, #888888);"></div>
+                  <span>Chrome</span>
+                </button>
+                <button class="preset-card" data-preset="ruby-red">
+                  <div class="preset-preview" style="background: linear-gradient(135deg, #ff0055, #880022);"></div>
+                  <span>Ruby Glass</span>
+                </button>
+                <button class="preset-card" data-preset="ceramic-matte">
+                  <div class="preset-preview" style="background: #ffffff; border: 1px solid #444;"></div>
+                  <span>Clay</span>
+                </button>
+                <button class="preset-card" data-preset="matte-black">
+                  <div class="preset-preview" style="background: #111;"></div>
+                  <span>Obsidian</span>
+                </button>
+                <button class="preset-card" data-preset="gold-glitch">
+                  <div class="preset-preview" style="background: linear-gradient(135deg, #ffe600, #b8860b);"></div>
+                  <span>Gold</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Section: Model Material -->
+            <div class="control-group expanded">
+              <div class="control-group-header">
+                <h3>Material Config</h3>
+              </div>
+              <div class="control-group-content">
+                <!-- Color Picker -->
+                <div class="control-row">
+                  <label for="material-color">Base Color</label>
+                  <div class="color-picker-wrapper">
+                    <input type="color" id="material-color" value="#77ff00" />
+                    <span id="color-hex" class="hex-label">#77FF00</span>
+                  </div>
+                </div>
+
+                <!-- Roughness Slider -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="material-roughness">Roughness</label>
+                    <span id="val-roughness">0.49</span>
+                  </div>
+                  <input type="range" id="material-roughness" min="0" max="1" step="0.01" value="0.49" />
+                </div>
+
+                <!-- Metalness Slider -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="material-metalness">Metalness</label>
+                    <span id="val-metalness">1.00</span>
+                  </div>
+                  <input type="range" id="material-metalness" min="0" max="1" step="0.01" value="1.00" />
+                </div>
+
+                <!-- Transmission (Glass Effect) -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="material-transmission">Transmission (Glass)</label>
+                    <span id="val-transmission">1.00</span>
+                  </div>
+                  <input type="range" id="material-transmission" min="0" max="1" step="0.01" value="1.00" />
+                </div>
+
+                <!-- Thickness Slider -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="material-thickness">Thickness</label>
+                    <span id="val-thickness">20.0</span>
+                  </div>
+                  <input type="range" id="material-thickness" min="0" max="50" step="0.5" value="20.0" />
+                </div>
+
+                <!-- Index of Refraction (IOR) Slider -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="material-ior">Refractive Index (IOR)</label>
+                    <span id="val-ior">2.55</span>
+                  </div>
+                  <input type="range" id="material-ior" min="1.0" max="3.0" step="0.01" value="2.55" />
+                </div>
+
+                <!-- Scale Slider -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="model-scale">Model Scale</label>
+                    <span id="val-scale">1.00</span>
+                  </div>
+                  <input type="range" id="model-scale" min="0.2" max="2.5" step="0.05" value="1.00" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Section: Block Effect (Voxelize) -->
+            <div class="control-group">
+              <div class="control-group-header">
+                <h3>Block Effect</h3>
+              </div>
+              <div class="control-group-content">
+                <!-- Enable Block Mode -->
+                <div class="control-row checkbox-row">
+                  <label for="block-mode">Enable Block Mode</label>
+                  <input type="checkbox" id="block-mode" />
+                </div>
+
+                <!-- Block Shape Selector -->
+                <div class="control-row">
+                  <label for="block-shape">Block Shape</label>
+                  <select id="block-shape" class="form-select">
+                    <option value="cube">Cubes</option>
+                    <option value="lego">Lego Bricks</option>
+                    <option value="lego-plate">Lego Plates</option>
+                  </select>
+                </div>
+
+                <!-- Snap to Lego Colors -->
+                <div class="control-row checkbox-row">
+                  <label for="block-lego-snap">Snap to Lego Colors</label>
+                  <input type="checkbox" id="block-lego-snap" />
+                </div>
+
+                <!-- Block Resolution -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="block-resolution">Block Density</label>
+                    <span id="val-block-resolution">30</span>
+                  </div>
+                  <input type="range" id="block-resolution" min="10" max="60" step="1" value="30" />
+                </div>
+
+                <!-- Block Gap / Outlines -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="block-gap">Block Outlines</label>
+                    <span id="val-block-gap">5%</span>
+                  </div>
+                  <input type="range" id="block-gap" min="0" max="25" step="1" value="5" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Section: Light & Environment Settings -->
+            <div class="control-group">
+              <div class="control-group-header">
+                <h3>Light & Scene</h3>
+              </div>
+              <div class="control-group-content">
+                <!-- Directional Light Intensity -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="light-intensity">Key Light Power</label>
+                    <span id="val-light-intensity">3.0</span>
+                  </div>
+                  <input type="range" id="light-intensity" min="0" max="10" step="0.1" value="3.0" />
+                </div>
+
+                <!-- Light X Angle -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="light-x">Key Light Angle X</label>
+                    <span id="val-light-x">5.3</span>
+                  </div>
+                  <input type="range" id="light-x" min="-20" max="20" step="0.1" value="5.3" />
+                </div>
+
+                <!-- Light Y Angle -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="light-y">Key Light Angle Y</label>
+                    <span id="val-light-y">-10.0</span>
+                  </div>
+                  <input type="range" id="light-y" min="-20" max="20" step="0.1" value="-10.0" />
+                </div>
+
+                <!-- Light Z Angle -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="light-z">Key Light Angle Z</label>
+                    <span id="val-light-z">4.1</span>
+                  </div>
+                  <input type="range" id="light-z" min="-20" max="20" step="0.1" value="4.1" />
+                </div>
+
+                <!-- Hemispherical Sky Intensity -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="hemi-intensity">Sky Light Power</label>
+                    <span id="val-hemi-intensity">0.3</span>
+                  </div>
+                  <input type="range" id="hemi-intensity" min="0" max="2" step="0.05" value="0.3" />
+                </div>
+
+                <!-- Background Color Type Toggle -->
+                <div class="control-row">
+                  <label for="scene-bg-type">Background Mode</label>
+                  <select id="scene-bg-type" class="form-select">
+                    <option value="solid">Solid Color</option>
+                    <option value="gradient">Studio Gradient</option>
+                    <option value="transparent">Transparent</option>
+                  </select>
+                </div>
+
+                <!-- Scene Background Color picker -->
+                <div class="control-row" id="bg-color-picker-row">
+                  <label for="scene-bg-color">Background Color</label>
+                  <div class="color-picker-wrapper">
+                    <input type="color" id="scene-bg-color" value="#ffffff" />
+                    <span id="bg-color-hex" class="hex-label">#FFFFFF</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section: Motion & Camera -->
+            <div class="control-group">
+              <div class="control-group-header">
+                <h3>Motion & Cam</h3>
+              </div>
+              <div class="control-group-content">
+                <!-- Auto Rotate Speed -->
+                <div class="control-row checkbox-row">
+                  <label for="anim-auto-rotate">Auto Rotate Scene</label>
+                  <input type="checkbox" id="anim-auto-rotate" checked />
+                </div>
+
+                <!-- Rotation Speed Slider -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="anim-speed">Rotation Speed</label>
+                    <span id="val-anim-speed">0.05</span>
+                  </div>
+                  <input type="range" id="anim-speed" min="-0.2" max="0.2" step="0.005" value="0.05" />
+                </div>
+
+                <!-- Interactive Speed Easing Mass -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="anim-mass">Easing inertia</label>
+                    <span id="val-anim-mass">5.0</span>
+                  </div>
+                  <input type="range" id="anim-mass" min="1" max="15" step="0.5" value="5.0" />
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </aside>
+
+        <!-- Right Toolbar: Output & File Selection -->
+        <aside class="sidebar sidebar-right">
+          <div class="sidebar-scroll">
+            
+            <!-- Section: Custom Import -->
+            <div class="control-group expanded">
+              <div class="control-group-header">
+                <h3>Custom Model</h3>
+              </div>
+              <div class="control-group-content">
+                <div class="upload-zone" id="upload-zone">
+                  <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                  <div class="upload-text">Upload Custom FBX / GLB</div>
+                  <span class="upload-hint">Drag & drop or click</span>
+                  <input type="file" id="model-upload" accept=".fbx,.glb,.gltf" style="display: none;" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Section: Media Upload -->
+            <div class="control-group expanded">
+              <div class="control-group-header">
+                <h3>Media Upload</h3>
+              </div>
+              <div class="control-group-content">
+                <div class="upload-zone" id="media-upload-zone">
+                  <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  <div class="upload-text">Upload Image / Video</div>
+                  <span class="upload-hint">Drag & drop PNG, JPG, MP4, WEBM</span>
+                  <input type="file" id="media-upload" accept="image/*,video/*" style="display: none;" />
+                </div>
+
+                <!-- Media Info & Preview -->
+                <div id="media-info-wrapper" class="media-info-wrapper" style="display: none; margin-top: 12px;">
+                  <div class="media-preview-container">
+                    <canvas id="media-preview-canvas" width="60" height="60" style="border-radius: 6px; border: 1px solid var(--sidebar-border); object-fit: cover; background: #000;"></canvas>
+                    <div class="media-details">
+                      <span id="media-filename" class="media-filename" style="font-size: 0.8rem; font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">filename.mp4</span>
+                      <span id="media-type-badge" class="badge">VIDEO</span>
+                    </div>
+                  </div>
+
+                  <!-- Playback controls (only for video) -->
+                  <div id="media-video-controls" class="media-video-controls" style="display: none; margin-top: 10px; gap: 8px;">
+                    <button id="btn-video-play" class="btn btn-secondary btn-full" style="padding: 6px; font-size: 0.75rem;">Play</button>
+                    <button id="btn-video-mute" class="btn btn-secondary btn-full" style="padding: 6px; font-size: 0.75rem;">Mute</button>
+                  </div>
+                </div>
+
+                <!-- Mapping destination select -->
+                <div class="control-row" style="margin-top: 12px; margin-bottom: 0;">
+                  <label for="media-mapping">Map Media To</label>
+                  <select id="media-mapping" class="form-select">
+                    <option value="none">None</option>
+                    <option value="background">Scene Background</option>
+                    <option value="model">Model Texture</option>
+                    <option value="heightmap">Voxel Heightmap</option>
+                  </select>
+                </div>
+
+                <!-- Heightmap Scale Slider -->
+                <div class="control-row" id="media-height-scale-row" style="display: none; margin-top: 12px; margin-bottom: 0;">
+                  <div class="label-with-val">
+                    <label for="media-height-scale">Heightmap Scale</label>
+                    <span id="val-media-height-scale">1.5</span>
+                  </div>
+                  <input type="range" id="media-height-scale" min="0.1" max="5.0" step="0.1" value="1.5" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Section: Render and Output -->
+            <div class="control-group expanded">
+              <div class="control-group-header">
+                <h3>Export Render</h3>
+              </div>
+              <div class="control-group-content actions-wrapper">
+                <button id="btn-screenshot" class="btn btn-primary btn-full">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  Export High-Res PNG
+                </button>
+                <button id="btn-export-glb" class="btn btn-secondary btn-full">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                  Download 3D Model (.GLB)
+                </button>
+              </div>
+            </div>
+
+            <!-- Section: Keyboard shortcuts & info -->
+            <div class="control-group">
+              <div class="control-group-header">
+                <h3>Camera Info</h3>
+              </div>
+              <div class="control-group-content info-panel">
+                <div class="info-row">
+                  <span>FOV:</span>
+                  <span id="info-fov">10°</span>
+                </div>
+                <div class="info-row">
+                  <span>Mesh count:</span>
+                  <span id="info-meshes">1</span>
+                </div>
+                <div class="info-row">
+                  <span>Vertices:</span>
+                  <span id="info-vertices">0</span>
+                </div>
+                <div class="info-row">
+                  <span>Triangles:</span>
+                  <span id="info-triangles">0</span>
+                </div>
+                <div class="shortcut-tip">
+                  <strong>Tip:</strong> Left-click + drag to rotate model. Right-click + drag to pan. Scroll to zoom.
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </aside>
+
+        <!-- Footer / Credits -->
+        <footer class="footer">
+          <div class="footer-left">
+            <span>Powered by Three.js & Vite</span>
+          </div>
+          <div class="footer-right">
+            <span>Endless Tools Replicated Studio</span>
+          </div>
+        </footer>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
