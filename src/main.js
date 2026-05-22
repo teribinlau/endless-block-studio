@@ -657,7 +657,7 @@ function updateBlockEffect() {
         let studGeom = null;
         const studRadius = boxWidth * 0.3;
         const studHeight = boxWidth * 0.2;
-        if (shape === 'lego' || shape === 'lego-plate') {
+        if (shape === 'lego' || shape === 'lego-plate' || shape === 'flat') {
           studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
         }
         
@@ -812,7 +812,7 @@ function voxelizeMesh(model, resolution) {
   const voxelSize = maxDim / resolution;
 
   const shape = blockShape.value;
-  const heightFactor = (shape === 'lego') ? 1.2 : (shape === 'lego-plate' ? 0.4 : 1.0);
+  const heightFactor = (shape === 'lego') ? 1.2 : (shape === 'lego-plate' || shape === 'flat') ? 0.4 : 1.0;
   const voxelSizeY = voxelSize * heightFactor;
   const sampleStep = Math.min(voxelSize, voxelSizeY);
 
@@ -1524,9 +1524,13 @@ function updateBlockHeightmap() {
       
       let layers = 0;
       if (alpha >= 0.1) {
-        const brightness = 0.299 * px.r + 0.587 * px.g + 0.114 * px.b;
-        const h = invertHeight ? (1 - brightness) : brightness;
-        layers = Math.max(1, Math.round(h * heightScale));
+        if (shape === 'flat') {
+          layers = 1;  // flat 2D: all cells are one plate thick — no height variation
+        } else {
+          const brightness = 0.299 * px.r + 0.587 * px.g + 0.114 * px.b;
+          const h = invertHeight ? (1 - brightness) : brightness;
+          layers = Math.max(1, Math.round(h * heightScale));
+        }
       }
 
       let display = px;
@@ -1604,7 +1608,7 @@ function updateBlockHeightmap() {
     if (shape === 'lego') {
       neededBricks += b.layers;   // each layer = 1 brick (brickH tall)
       neededStuds  += b.w * b.d;
-    } else if (shape === 'lego-plate') {
+    } else if (shape === 'lego-plate' || shape === 'flat') {
       neededPlates += b.layers;   // each layer = 1 plate (plateH tall)
       neededStuds  += b.w * b.d;
     } else if (shape === 'cube') {
@@ -1760,8 +1764,8 @@ function updateBlockHeightmap() {
           studIdx++;
         }
       }
-    } else if (shape === 'lego-plate') {
-      // Stack only plates
+    } else if (shape === 'lego-plate' || shape === 'flat') {
+      // Stack plates (flat 2D: always 1 layer, lego-plate: layers from heightmap)
       for (let i = 0; i < b.layers; i++) {
         const py = (i + 0.5) * plateH;
         dummy.position.set(cx, py, cz);
