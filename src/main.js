@@ -1936,96 +1936,6 @@ function resize2DCanvas() {
   ctx2D.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-/* ---------------------------------------------------------------------------
-   Stud overlay template
-   ---------------------------------------------------------------------------
-   To match the polished look of a real Lego brick photograph, every cell is
-   rendered in two passes: (1) a flat base-colour fill, then (2) a colourless
-   "stud overlay" composited on top. The overlay is a pre-rendered canvas of
-   semi-transparent black & white pixels — the dark pixels darken whatever
-   colour is underneath (shadows), the bright pixels brighten it (highlights).
-   This gives every Lego colour a consistent 3D dome look without paying for
-   per-cell radial gradients on every render.
-   ------------------------------------------------------------------------- */
-let cachedStudOverlay = null;
-let cachedStudOverlaySize = 0;
-
-function getStudOverlay(size) {
-  if (cachedStudOverlay && cachedStudOverlaySize === size) return cachedStudOverlay;
-
-  const off = document.createElement('canvas');
-  off.width = size;
-  off.height = size;
-  const octx = off.getContext('2d');
-
-  const cx = size / 2;
-  const cy = size / 2;
-  const studR = size * 0.36;          // stud radius
-  const shadowR = studR * 1.20;        // soft shadow ring around stud
-
-  // 1. Recessed ring around the stud — a subtle dark halo on the brick body
-  const ring = octx.createRadialGradient(cx, cy, studR * 0.95, cx, cy, shadowR);
-  ring.addColorStop(0, 'rgba(0,0,0,0.28)');
-  ring.addColorStop(1, 'rgba(0,0,0,0)');
-  octx.fillStyle = ring;
-  octx.beginPath();
-  octx.arc(cx, cy, shadowR, 0, Math.PI * 2);
-  octx.fill();
-
-  // 2. Stud dome — neutral overlay (highlight top-left, shadow bottom-right)
-  const dome = octx.createRadialGradient(
-    cx - studR * 0.32, cy - studR * 0.32, studR * 0.05,
-    cx, cy, studR
-  );
-  dome.addColorStop(0.00, 'rgba(255,255,255,0.55)'); // brightest specular center
-  dome.addColorStop(0.35, 'rgba(255,255,255,0.10)');
-  dome.addColorStop(0.65, 'rgba(0,0,0,0.12)');
-  dome.addColorStop(1.00, 'rgba(0,0,0,0.42)');       // darkest rim (lower-right)
-  octx.fillStyle = dome;
-  octx.beginPath();
-  octx.arc(cx, cy, studR, 0, Math.PI * 2);
-  octx.fill();
-
-  // 3. Tight specular crescent on the upper-left of the dome
-  octx.fillStyle = 'rgba(255,255,255,0.38)';
-  octx.beginPath();
-  octx.arc(cx - studR * 0.30, cy - studR * 0.30, studR * 0.30, 0, Math.PI * 2);
-  octx.fill();
-
-  // 4. Crisp 1px dark ring exactly on the stud edge — pops the silhouette
-  octx.strokeStyle = 'rgba(0,0,0,0.25)';
-  octx.lineWidth = Math.max(1, size * 0.012);
-  octx.beginPath();
-  octx.arc(cx, cy, studR, 0, Math.PI * 2);
-  octx.stroke();
-
-  cachedStudOverlay = off;
-  cachedStudOverlaySize = size;
-  return off;
-}
-
-/* Subtle vertical light→dark gradient overlay for the brick body. Cached at
-   the current tile size — same trick as the stud overlay. */
-let cachedBodyOverlay = null;
-let cachedBodyOverlaySize = 0;
-
-function getBodyOverlay(size) {
-  if (cachedBodyOverlay && cachedBodyOverlaySize === size) return cachedBodyOverlay;
-  const off = document.createElement('canvas');
-  off.width = size;
-  off.height = size;
-  const octx = off.getContext('2d');
-  const g = octx.createLinearGradient(0, 0, 0, size);
-  g.addColorStop(0,    'rgba(255,255,255,0.07)'); // top a touch brighter
-  g.addColorStop(0.55, 'rgba(0,0,0,0)');
-  g.addColorStop(1,    'rgba(0,0,0,0.12)');       // bottom a touch darker
-  octx.fillStyle = g;
-  octx.fillRect(0, 0, size, size);
-  cachedBodyOverlay = off;
-  cachedBodyOverlaySize = size;
-  return off;
-}
-
 function render2D() {
   if (viewMode !== '2d') return;
 
@@ -2068,14 +1978,14 @@ function render2D() {
   const offsetX = Math.round((w - gridW) / 2);
   const offsetY = Math.round((h - gridH) / 2);
 
-  // Pre-render (or reuse) the colourless stud + body overlays for this tile size
-  const studOverlay = getStudOverlay(tileSize);
-  const bodyOverlay = getBodyOverlay(tileSize);
+  // Stud geometry — flat solid circle, ~35% of tile size
+  const studR = tileSize * 0.34;
+  // Stud "shadow" is just a flat darker version of the brick colour. No
+  // gradients, no highlights — pure flat-design representation.
+  const STUD_TINT = 0.78;
 
   const useSnap = blockLegoSnap.checked; // optional; defaults checked
 
-  // Pass: fill every cell with its base colour, then composite the shared
-  // grayscale stud overlay on top. Bricks are drawn seamlessly (no gap).
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const u = c / (cols - 1 || 1);
@@ -2093,15 +2003,19 @@ function render2D() {
       const x = offsetX + c * tileSize;
       const y = offsetY + r * tileSize;
 
-      // 1. Base brick fill (seamless — no gap)
+      // 1. Brick body — flat solid fill, seamless (no gap)
       ctx2D.fillStyle = `rgb(${R},${G},${B})`;
       ctx2D.fillRect(x, y, tileSize, tileSize);
 
-      // 2. Soft body gradient (depth)
-      ctx2D.drawImage(bodyOverlay, x, y);
-
-      // 3. Stud + halo + highlight (cached grayscale composite)
-      ctx2D.drawImage(studOverlay, x, y);
+      // 2. Stud — flat solid circle, slightly darker than the brick.
+      //    No gradient, no highlight, no halo — pure flat shape.
+      const sR = Math.round(R * STUD_TINT);
+      const sG = Math.round(G * STUD_TINT);
+      const sB = Math.round(B * STUD_TINT);
+      ctx2D.fillStyle = `rgb(${sR},${sG},${sB})`;
+      ctx2D.beginPath();
+      ctx2D.arc(x + tileSize / 2, y + tileSize / 2, studR, 0, Math.PI * 2);
+      ctx2D.fill();
     }
   }
 }
