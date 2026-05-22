@@ -2443,38 +2443,41 @@ function animate() {
       mediaPreviewCanvas.height = 60;
       mediaPreviewCtx.drawImage(loadedMediaElement, 0, 0, 60, 60);
 
-      // 2. Update real-time voxels
-      if (blockMode.checked) {
-        if (mediaMapping.value === 'model') {
-          if (voxelInstancedMesh) {
-            sampleOffscreenCanvas();
-            
-            if (voxelKeys && voxelKeys.length > 0) {
-              for (let i = 0; i < voxelKeys.length; i++) {
-                const key = voxelKeys[i];
-                const uv = voxelUVMap.get(key);
-                if (uv) {
-                  let colorToUse = getSampledPixelColor(uv.x, uv.y);
-                  if (blockLegoSnap.checked) {
-                    colorToUse = snapToLegoColor(colorToUse);
-                  }
-                  voxelInstancedMesh.setColorAt(i, colorToUse);
-                  if (voxelStudInstancedMesh) {
-                    voxelStudInstancedMesh.setColorAt(i, colorToUse);
-                  }
+      // 2a. Update real-time voxel colours on a 3D-model voxelization
+      //     (only meaningful when Block Mode is on and mapping is 'model')
+      if (blockMode.checked && mediaMapping.value === 'model') {
+        if (voxelInstancedMesh) {
+          sampleOffscreenCanvas();
+
+          if (voxelKeys && voxelKeys.length > 0) {
+            for (let i = 0; i < voxelKeys.length; i++) {
+              const key = voxelKeys[i];
+              const uv = voxelUVMap.get(key);
+              if (uv) {
+                let colorToUse = getSampledPixelColor(uv.x, uv.y);
+                if (blockLegoSnap.checked) {
+                  colorToUse = snapToLegoColor(colorToUse);
+                }
+                voxelInstancedMesh.setColorAt(i, colorToUse);
+                if (voxelStudInstancedMesh) {
+                  voxelStudInstancedMesh.setColorAt(i, colorToUse);
                 }
               }
-              if (voxelInstancedMesh.instanceColor) {
-                voxelInstancedMesh.instanceColor.needsUpdate = true;
-              }
-              if (voxelStudInstancedMesh && voxelStudInstancedMesh.instanceColor) {
-                voxelStudInstancedMesh.instanceColor.needsUpdate = true;
-              }
+            }
+            if (voxelInstancedMesh.instanceColor) {
+              voxelInstancedMesh.instanceColor.needsUpdate = true;
+            }
+            if (voxelStudInstancedMesh && voxelStudInstancedMesh.instanceColor) {
+              voxelStudInstancedMesh.instanceColor.needsUpdate = true;
             }
           }
-        } else if (mediaMapping.value === 'heightmap') {
-          updateBlockHeightmap();
         }
+      }
+
+      // 2b. Update heightmap voxels from the latest video frame.
+      //     Independent of Block Mode — heightmap is its own display mode.
+      if (mediaMapping.value === 'heightmap') {
+        updateBlockHeightmap();
       }
     }
   }
