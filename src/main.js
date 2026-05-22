@@ -2077,16 +2077,179 @@ function captureScreenshot() {
   link.click();
 }
 
+// Helper to convert an InstancedMesh to a merged standard Mesh for GLB compatibility
+function convertInstancedMeshToMesh(instancedMesh) {
+  if (!instancedMesh || instancedMesh.count === 0) return null;
+
+  const count = instancedMesh.count;
+  const baseGeometry = instancedMesh.geometry;
+  const geometries = [];
+
+  const matrix = new THREE.Matrix4();
+  const color = new THREE.Color();
+
+  for (let i = 0; i < count; i++) {
+    instancedMesh.getMatrixAt(i, matrix);
+    
+    if (instancedMesh.instanceColor) {
+      instancedMesh.getColorAt(i, color);
+    } else {
+      color.setRGB(1, 1, 1);
+    }
+
+    const geom = baseGeometry.clone();
+    geom.applyMatrix4(matrix);
+
+    // Apply color as vertex colors
+    const positionCount = geom.attributes.position.count;
+    const colorsArray = new Float32Array(positionCount * 3);
+    for (let j = 0; j < positionCount; j++) {
+      colorsArray[j * 3] = color.r;
+      colorsArray[j * 3 + 1] = color.g;
+      colorsArray[j * 3 + 2] = color.b;
+    }
+    geom.setAttribute('color', new THREE.Float32BufferAttribute(colorsArray, 3));
+    
+    geometries.push(geom);
+  }
+
+  // Merge all geometries
+  let mergedGeom = null;
+  try {
+    mergedGeom = BufferGeometryUtils.mergeGeometries(geometries, false);
+  } catch (e) {
+    console.error('Failed to merge geometries:', e);
+    geometries.forEach(g => g.dispose());
+    return null;
+  }
+
+  // Clean up individual geometries
+  geometries.forEach(g => g.dispose());
+
+  if (!mergedGeom) return null;
+
+  // Create material clone and enable vertexColors
+  const material = instancedMesh.material.clone();
+  material.vertexColors = true;
+
+  const mergedMesh = new THREE.Mesh(mergedGeom, material);
+  return mergedMesh;
+}
+
 // Export Scene to GLB File format
 function exportToGLB() {
-  if (!currentModel) return;
+  const isHeightmapMode = (isMediaLoaded && mediaMapping.value === 'heightmap');
+  if (!currentModel && !isHeightmapMode) return;
+
+  showLoader(true);
+  loaderProgress.textContent = 'Preparing 3D model for export...';
+
+  // Build a temporary group containing all visible meshes
+  const exportGroup = new THREE.Group();
+  exportGroup.name = "exported_scene";
+
+  const isVoxelizedMode = (!isHeightmapMode && blockMode.checked);
+
+  // Array to keep track of cloned objects/materials/geometries to dispose later
+  const tempObjectsToDispose = [];
+
+  const addMergedVoxelMesh = (instancedMesh, name) => {
+    if (instancedMesh && instancedMesh.count > 0 && instancedMesh.visible) {
+      const mergedMesh = convertInstancedMeshToMesh(instancedMesh);
+      if (mergedMesh) {
+        mergedMesh.name = name;
+        exportGroup.add(mergedMesh);
+        tempObjectsToDispose.push(mergedMesh);
+      }
+    }
+  };
+
+  const addMergedVoxelMeshToGroup = (instancedMesh, name, parentGroup) => {
+    if (instancedMesh && instancedMesh.count > 0 && instancedMesh.visible) {
+      const mergedMesh = convertInstancedMeshToMesh(instancedMesh);
+      if (mergedMesh) {
+        mergedMesh.name = name;
+        parentGroup.add(mergedMesh);
+        tempObjectsToDispose.push(mergedMesh);
+      }
+    }
+  };
+
+  if (isHeightmapMode) {
+    // Heightmap mode: export voxelInstancedMesh, voxelPlateInstancedMesh, and voxelStudInstancedMesh
+    addMergedVoxelMesh(voxelInstancedMesh, "voxel_bricks");
+    addMergedVoxelMesh(voxelPlateInstancedMesh, "voxel_plates");
+    addMergedVoxelMesh(voxelStudInstancedMesh, "voxel_studs");
+  } else if (isVoxelizedMode) {
+    // Voxelized mode: export voxelInstancedMesh and voxelStudInstancedMesh
+    const modelGroup = new THREE.Group();
+    modelGroup.name = (currentModel && currentModel.name) ? `${currentModel.name}_voxelized` : "voxel_model";
+    
+    // Copy currentModel's transform to modelGroup
+    if (currentModel) {
+      modelGroup.position.copy(currentModel.position);
+      modelGroup.rotation.copy(currentModel.rotation);
+      modelGroup.scale.copy(currentModel.scale);
+      modelGroup.updateMatrix();
+    }
+    
+    addMergedVoxelMeshToGroup(voxelInstancedMesh, "voxel_bricks", modelGroup);
+    addMergedVoxelMeshToGroup(voxelStudInstancedMesh, "voxel_studs", modelGroup);
+    
+    exportGroup.add(modelGroup);
+    tempObjectsToDispose.push(modelGroup);
+  } else {
+    // Standard model mode (not heightmap, not voxelized)
+    if (currentModel) {
+      // Clone currentModel
+      const clonedModel = currentModel.clone(true);
+      
+      // Filter out invisible children and any instanced meshes
+      const toRemove = [];
+      clonedModel.traverse((child) => {
+        if (child.isMesh) {
+          if (!child.visible || child.isInstancedMesh) {
+            toRemove.push(child);
+          }
+        }
+      });
+      toRemove.forEach((child) => {
+        if (child.parent) {
+          child.parent.remove(child);
+        }
+      });
+
+      exportGroup.add(clonedModel);
+      tempObjectsToDispose.push(clonedModel);
+    }
+  }
+
+  // If there is nothing to export, warn user
+  if (exportGroup.children.length === 0) {
+    showLoader(false);
+    alert('No visible 3D models to export!');
+    return;
+  }
 
   const exporter = new GLTFExporter();
-  
-  // Temporarily reset rotation and position for direct export or keep it as is
   exporter.parse(
-    currentModel,
+    exportGroup,
     (glb) => {
+      // Clean up temporary objects
+      tempObjectsToDispose.forEach((obj) => {
+        obj.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((mat) => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+      });
+      showLoader(false);
+
       const blob = new Blob([glb], { type: 'application/octet-stream' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -2095,9 +2258,23 @@ function exportToGLB() {
     },
     (err) => {
       console.error('Error creating GLB file:', err);
+      // Clean up temporary objects
+      tempObjectsToDispose.forEach((obj) => {
+        obj.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((mat) => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+      });
+      showLoader(false);
       alert('Could not export GLB file!');
     },
-    { binary: true }
+    { binary: true, onlyVisible: true }
   );
 }
 
