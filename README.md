@@ -1,4 +1,4 @@
-# Endless Block Studio
+# Everything Lego Studio
 
 A browser-based 3D editor for real-time material editing and voxel/Lego-style remeshing, built with Three.js and Vite.
 
@@ -32,7 +32,7 @@ npm run preview  # preview production build
 ## Project layout
 
 ```
-block/
+everything-lego/
 ├── index.html         UI shell — left/right sidebars + canvas
 ├── public/
 │   ├── favicon.svg

@@ -1970,7 +1970,7 @@ function toggleTheme() {
   const isCurrentlyLight = root.getAttribute('data-theme') === 'light';
   const newTheme = isCurrentlyLight ? 'dark' : 'light';
   root.setAttribute('data-theme', newTheme);
-  localStorage.setItem('endless-block-theme', newTheme);
+  localStorage.setItem('everything-lego-theme', newTheme);
 
   // Swap background color to a theme-appropriate default
   const newBgColor = newTheme === 'light' ? '#d8d8e2' : '#1a1a24';
@@ -1982,7 +1982,7 @@ function toggleTheme() {
 }
 
 function loadSavedTheme() {
-  const saved = localStorage.getItem('endless-block-theme');
+  const saved = localStorage.getItem('everything-lego-theme');
   if (saved === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
   }
@@ -2168,7 +2168,7 @@ function captureScreenshot() {
 
   // Trigger download
   const link = document.createElement('a');
-  link.download = `endless-render-${Date.now()}.png`;
+  link.download = `everything-lego-render-${Date.now()}.png`;
   link.href = dataURL;
   link.click();
 }
@@ -2351,7 +2351,7 @@ function exportToGLB() {
       const blob = new Blob([glb], { type: 'application/octet-stream' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `endless-model-${Date.now()}.glb`;
+      link.download = `everything-lego-model-${Date.now()}.glb`;
       link.click();
     },
     (err) => {
