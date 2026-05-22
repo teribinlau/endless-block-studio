@@ -812,7 +812,7 @@ function voxelizeMesh(model, resolution) {
   const voxelSize = maxDim / resolution;
 
   const shape = blockShape.value;
-  const heightFactor = (shape === 'lego') ? 1.2 : (shape === 'lego-plate' || shape === 'flat') ? 0.4 : 1.0;
+  const heightFactor = (shape === 'lego' || shape === 'flat') ? 1.2 : (shape === 'lego-plate') ? 0.4 : 1.0;
   const voxelSizeY = voxelSize * heightFactor;
   const sampleStep = Math.min(voxelSize, voxelSizeY);
 
@@ -1088,6 +1088,13 @@ function setupUIEventListeners() {
   });
 
   blockShape.addEventListener('change', () => {
+    // Flat 2D looks much more like real Lego assembly when bricks of varied
+    // sizes are used — auto-enable Mix Bricks (which also forces Lego Snap).
+    if (blockShape.value === 'flat' && !blockMix.checked) {
+      blockMix.checked = true;
+      blockLegoSnap.checked = true;
+      blockLegoSnap.disabled = true;
+    }
     triggerBlockUpdate();
   });
 
@@ -1608,8 +1615,11 @@ function updateBlockHeightmap() {
     if (shape === 'lego') {
       neededBricks += b.layers;   // each layer = 1 brick (brickH tall)
       neededStuds  += b.w * b.d;
-    } else if (shape === 'lego-plate' || shape === 'flat') {
+    } else if (shape === 'lego-plate') {
       neededPlates += b.layers;   // each layer = 1 plate (plateH tall)
+      neededStuds  += b.w * b.d;
+    } else if (shape === 'flat') {
+      neededBricks += 1;          // one full brick per cell (brickH tall)
       neededStuds  += b.w * b.d;
     } else if (shape === 'cube') {
       neededBricks += 1;
@@ -1618,7 +1628,7 @@ function updateBlockHeightmap() {
 
   // Dynamically manage / pool InstancedMesh for bricks
   if (neededBricks > 0) {
-    const brickGeomHeight = (shape === 'lego') ? brickH : boxSize;
+    const brickGeomHeight = (shape === 'lego' || shape === 'flat') ? brickH : boxSize;
     const needsRecreate = !voxelInstancedMesh || 
       !voxelInstancedMesh.userData.isHeightmap ||
       voxelInstancedMesh.userData.shape !== shape ||
@@ -1764,8 +1774,8 @@ function updateBlockHeightmap() {
           studIdx++;
         }
       }
-    } else if (shape === 'lego-plate' || shape === 'flat') {
-      // Stack plates (flat 2D: always 1 layer, lego-plate: layers from heightmap)
+    } else if (shape === 'lego-plate') {
+      // Stack only plates
       for (let i = 0; i < b.layers; i++) {
         const py = (i + 0.5) * plateH;
         dummy.position.set(cx, py, cz);
@@ -1778,6 +1788,30 @@ function updateBlockHeightmap() {
 
       // Studs on top
       const stackTop = b.layers * plateH;
+      for (let dr = 0; dr < b.d; dr++) {
+        for (let dc = 0; dc < b.w; dc++) {
+          const sx = (b.c + dc - cols / 2 + 0.5) * voxelSize;
+          const sz = (b.r + dr - rows / 2 + 0.5) * voxelSize;
+          studDummy.position.set(sx, stackTop + studHeight / 2, sz);
+          studDummy.scale.set(1, 1, 1);
+          studDummy.updateMatrix();
+          voxelStudInstancedMesh.setMatrixAt(studIdx, studDummy.matrix);
+          voxelStudInstancedMesh.setColorAt(studIdx, b.color);
+          studIdx++;
+        }
+      }
+    } else if (shape === 'flat') {
+      // Flat 2D: a single brick-thick layer (no heightmap depth)
+      const py = brickH / 2;
+      dummy.position.set(cx, py, cz);
+      dummy.scale.set(sX, 1, sZ);
+      dummy.updateMatrix();
+      voxelInstancedMesh.setMatrixAt(brickIdx, dummy.matrix);
+      voxelInstancedMesh.setColorAt(brickIdx, b.color);
+      brickIdx++;
+
+      // Studs on top of the brick
+      const stackTop = brickH;
       for (let dr = 0; dr < b.d; dr++) {
         for (let dc = 0; dc < b.w; dc++) {
           const sx = (b.c + dc - cols / 2 + 0.5) * voxelSize;
