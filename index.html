@@ -93,13 +93,17 @@
                 <h3>Material Config</h3>
               </div>
               <div class="control-group-content">
-                <!-- Color Picker -->
+                <!-- Material Preset -->
                 <div class="control-row">
-                  <label for="material-color">Base Color</label>
-                  <div class="color-picker-wrapper">
-                    <input type="color" id="material-color" value="#77ff00" />
-                    <span id="color-hex" class="hex-label">#77FF00</span>
-                  </div>
+                  <label for="material-preset">Material Preset</label>
+                  <select id="material-preset" class="form-select">
+                    <option value="plastic" selected>Plastic (塑料)</option>
+                    <option value="frosted-glass">Frosted Glass (磨砂玻璃)</option>
+                    <option value="terracotta">Terracotta (陶土)</option>
+                    <option value="ruby">Ruby (红宝石)</option>
+                    <option value="metal">Polished Metal (镜面金属)</option>
+                    <option value="custom" disabled style="display: none;">Custom (自定义)</option>
+                  </select>
                 </div>
 
                 <!-- Roughness Slider -->

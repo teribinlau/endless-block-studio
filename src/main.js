@@ -39,8 +39,7 @@ const loaderProgress = document.getElementById('loader-progress');
 const webglCanvas = document.getElementById('webgl');
 
 // Material Inputs
-const materialColor = document.getElementById('material-color');
-const colorHex = document.getElementById('color-hex');
+const materialPreset = document.getElementById('material-preset');
 const materialRoughness = document.getElementById('material-roughness');
 const valRoughness = document.getElementById('val-roughness');
 const materialMetalness = document.getElementById('material-metalness');
@@ -127,9 +126,9 @@ const uploadZone = document.getElementById('upload-zone');
 const presetCards = document.querySelectorAll('.preset-card');
 
 // --- Create Global Material ---
-// Neon green, refractive glass-like physically based material as defined in metadata
+// Physically based material controlled by presets & inputs
 const physicalMaterial = new THREE.MeshPhysicalMaterial({
-  color: new THREE.Color(materialColor.value),
+  color: new THREE.Color('#ffffff'), // Default to white to prevent color distortion on voxel meshes
   roughness: parseFloat(materialRoughness.value),
   metalness: parseFloat(materialMetalness.value),
   transmission: parseFloat(materialTransmission.value),
@@ -139,9 +138,103 @@ const physicalMaterial = new THREE.MeshPhysicalMaterial({
   clearcoat: 1.0,
   clearcoatRoughness: 0.1,
   side: THREE.DoubleSide,
-  transparent: true,
+  transparent: parseFloat(materialTransmission.value) > 0,
   depthWrite: true,
 });
+
+// Material Presets Parameter Configs
+const materialPresets = {
+  plastic: {
+    roughness: 0.5,
+    metalness: 0.0,
+    transmission: 0.0,
+    thickness: 0.0,
+    ior: 1.5,
+    color: '#ffffff'
+  },
+  'frosted-glass': {
+    roughness: 0.45,
+    metalness: 0.0,
+    transmission: 0.9,
+    thickness: 10.0,
+    ior: 1.52,
+    color: '#ffffff'
+  },
+  terracotta: {
+    roughness: 0.95,
+    metalness: 0.0,
+    transmission: 0.0,
+    thickness: 0.0,
+    ior: 1.5,
+    color: '#ffffff'
+  },
+  ruby: {
+    roughness: 0.15,
+    metalness: 0.0,
+    transmission: 0.95,
+    thickness: 15.0,
+    ior: 1.77,
+    color: '#e0115f'
+  },
+  metal: {
+    roughness: 0.1,
+    metalness: 1.0,
+    transmission: 0.0,
+    thickness: 0.0,
+    ior: 1.5,
+    color: '#ffffff'
+  }
+};
+
+// Real-Time Material Update/Synchronizer
+function updateVoxelMaterials() {
+  const meshes = [voxelInstancedMesh, voxelPlateInstancedMesh, voxelStudInstancedMesh];
+  meshes.forEach(mesh => {
+    if (mesh && mesh.material) {
+      const mat = mesh.material;
+      mat.color.copy(physicalMaterial.color);
+      mat.roughness = physicalMaterial.roughness;
+      mat.metalness = physicalMaterial.metalness;
+      mat.transmission = physicalMaterial.transmission;
+      mat.thickness = physicalMaterial.thickness;
+      mat.ior = physicalMaterial.ior;
+      mat.transparent = physicalMaterial.transmission > 0;
+      mat.needsUpdate = true;
+    }
+  });
+}
+
+// Function to apply preset settings to controls and global material
+function applyMaterialPreset(presetKey) {
+  const preset = materialPresets[presetKey];
+  if (!preset) return;
+
+  materialRoughness.value = preset.roughness;
+  valRoughness.textContent = preset.roughness.toFixed(2);
+
+  materialMetalness.value = preset.metalness;
+  valMetalness.textContent = preset.metalness.toFixed(2);
+
+  materialTransmission.value = preset.transmission;
+  valTransmission.textContent = preset.transmission.toFixed(2);
+
+  materialThickness.value = preset.thickness;
+  valThickness.textContent = preset.thickness.toFixed(1);
+
+  materialIor.value = preset.ior;
+  valIor.textContent = preset.ior.toFixed(2);
+
+  physicalMaterial.roughness = preset.roughness;
+  physicalMaterial.metalness = preset.metalness;
+  physicalMaterial.transmission = preset.transmission;
+  physicalMaterial.thickness = preset.thickness;
+  physicalMaterial.ior = preset.ior;
+  physicalMaterial.color.set(preset.color);
+  physicalMaterial.transparent = preset.transmission > 0;
+  physicalMaterial.needsUpdate = true;
+
+  updateVoxelMaterials();
+}
 
 // Key directional light and hemi sky light
 let dirLight, hemiLight, fillLight, rimLight;
@@ -546,16 +639,8 @@ function updateBlockEffect() {
           studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
         }
         
-        // Use a clone of physicalMaterial with color white so instance colors are unmodified.
-        // Lego bricks are plastic, not glass — strip transmission/metalness from the clone
-        // so colors stay punchy regardless of which preset the 3D model is using.
+        // Use a clone of physicalMaterial. Its properties will be fully synced dynamically.
         const voxelMat = physicalMaterial.clone();
-        voxelMat.color.set('#ffffff');
-        voxelMat.transmission = 0;
-        voxelMat.metalness = 0;
-        voxelMat.roughness = 0.5;
-        voxelMat.thickness = 0;
-        voxelMat.ior = 1.5;
 
         voxelInstancedMesh = new THREE.InstancedMesh(voxelGeom, voxelMat, voxels.size);
         voxelInstancedMesh.userData = {
@@ -588,7 +673,7 @@ function updateBlockEffect() {
           sampleOffscreenCanvas();
         }
 
-        let baseColor = new THREE.Color(materialColor.value);
+        let baseColor = physicalMaterial.color.clone();
         if (blockLegoSnap.checked) {
           baseColor = snapToLegoColor(baseColor);
         }
@@ -817,40 +902,49 @@ function sampleTriangle(v1, v2, v3, uv1, uv2, uv3, step, callback) {
 function setupUIEventListeners() {
   
   // 1. Material Inputs
-  materialColor.addEventListener('input', (e) => {
-    const hexVal = e.target.value;
-    colorHex.textContent = hexVal.toUpperCase();
-    physicalMaterial.color.set(hexVal);
+  materialPreset.addEventListener('change', (e) => {
+    applyMaterialPreset(e.target.value);
   });
 
   materialRoughness.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     valRoughness.textContent = val.toFixed(2);
     physicalMaterial.roughness = val;
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
   });
 
   materialMetalness.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     valMetalness.textContent = val.toFixed(2);
     physicalMaterial.metalness = val;
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
   });
 
   materialTransmission.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     valTransmission.textContent = val.toFixed(2);
     physicalMaterial.transmission = val;
+    physicalMaterial.transparent = val > 0;
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
   });
 
   materialThickness.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     valThickness.textContent = val.toFixed(1);
     physicalMaterial.thickness = val;
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
   });
 
   materialIor.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     valIor.textContent = val.toFixed(2);
     physicalMaterial.ior = val;
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
   });
 
   modelScale.addEventListener('input', (e) => {
@@ -1527,7 +1621,6 @@ function updateBlockHeightmap() {
       brickCapacity = Math.max(512, Math.round(neededBricks * 1.2));
       const voxelGeom = new THREE.BoxGeometry(boxSize, brickGeomHeight, boxSize);
       const voxelMat = physicalMaterial.clone();
-      voxelMat.color.set('#ffffff');
 
       voxelInstancedMesh = new THREE.InstancedMesh(voxelGeom, voxelMat, brickCapacity);
       voxelInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(brickCapacity * 3), 3);
@@ -1568,7 +1661,6 @@ function updateBlockHeightmap() {
       plateCapacity = Math.max(512, Math.round(neededPlates * 1.2));
       const plateGeom = new THREE.BoxGeometry(boxSize, plateH, boxSize);
       const plateMat = physicalMaterial.clone();
-      plateMat.color.set('#ffffff');
 
       voxelPlateInstancedMesh = new THREE.InstancedMesh(plateGeom, plateMat, plateCapacity);
       voxelPlateInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(plateCapacity * 3), 3);
@@ -1609,7 +1701,6 @@ function updateBlockHeightmap() {
       studCapacity = Math.max(512, Math.round(neededStuds * 1.2));
       const studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
       const studMat = physicalMaterial.clone();
-      studMat.color.set('#ffffff');
 
       voxelStudInstancedMesh = new THREE.InstancedMesh(studGeom, studMat, studCapacity);
       voxelStudInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(studCapacity * 3), 3);
@@ -1952,8 +2043,7 @@ function applyPreset(presetKey) {
   if (!config) return;
 
   // 1. Update UI Elements
-  materialColor.value = config.color;
-  colorHex.textContent = config.color.toUpperCase();
+  materialPreset.value = 'custom';
 
   materialRoughness.value = config.roughness;
   valRoughness.textContent = config.roughness.toFixed(2);
@@ -1981,6 +2071,9 @@ function applyPreset(presetKey) {
   // Set transparent state correctly based on transmission
   physicalMaterial.transparent = config.transmission > 0;
   physicalMaterial.needsUpdate = true;
+
+  // 3. Sync to existing voxels
+  updateVoxelMaterials();
 }
 
 // --- Step 6: Handle Custom Uploaded Model (FBX/GLB) ---
