@@ -1602,14 +1602,11 @@ function updateBlockHeightmap() {
 
   for (const b of bricks) {
     if (shape === 'lego') {
-      const brickCount = Math.floor(b.layers / 3);
-      const plateCount = b.layers % 3;
-      neededBricks += brickCount;
-      neededPlates += plateCount;
-      neededStuds += b.w * b.d;
+      neededBricks += b.layers;   // each layer = 1 brick (brickH tall)
+      neededStuds  += b.w * b.d;
     } else if (shape === 'lego-plate') {
-      neededPlates += b.layers;
-      neededStuds += b.w * b.d;
+      neededPlates += b.layers;   // each layer = 1 plate (plateH tall)
+      neededStuds  += b.w * b.d;
     } else if (shape === 'cube') {
       neededBricks += 1;
     }
@@ -1738,11 +1735,8 @@ function updateBlockHeightmap() {
     const sZ = scaleN(b.d);
 
     if (shape === 'lego') {
-      const brickCount = Math.floor(b.layers / 3);
-      const plateCount = b.layers % 3;
-
-      // Stack bricks first (each 3 plate-units tall).
-      for (let i = 0; i < brickCount; i++) {
+      // Stack bricks — each layer is one full brick (brickH = 3× plateH).
+      for (let i = 0; i < b.layers; i++) {
         const py = (i + 0.5) * brickH;
         dummy.position.set(cx, py, cz);
         dummy.scale.set(sX, 1, sZ);
@@ -1752,20 +1746,8 @@ function updateBlockHeightmap() {
         brickIdx++;
       }
 
-      // Then plates on top.
-      const platesBase = brickCount * brickH;
-      for (let i = 0; i < plateCount; i++) {
-        const py = platesBase + (i + 0.5) * plateH;
-        dummy.position.set(cx, py, cz);
-        dummy.scale.set(sX, 1, sZ);
-        dummy.updateMatrix();
-        voxelPlateInstancedMesh.setMatrixAt(plateIdx, dummy.matrix);
-        voxelPlateInstancedMesh.setColorAt(plateIdx, b.color);
-        plateIdx++;
-      }
-
-      // Studs on top
-      const stackTop = brickCount * brickH + plateCount * plateH;
+      // Studs on top of the brick stack
+      const stackTop = b.layers * brickH;
       for (let dr = 0; dr < b.d; dr++) {
         for (let dc = 0; dc < b.w; dc++) {
           const sx = (b.c + dc - cols / 2 + 0.5) * voxelSize;
