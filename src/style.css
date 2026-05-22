@@ -1,4 +1,4 @@
-/* Reset & CSS variables */
+/* Reset & CSS variables — Dark theme (default) */
 :root {
   --bg-color: #08080a;
   --bg-gradient: radial-gradient(circle at top right, #181922 0%, #08080a 100%);
@@ -19,6 +19,57 @@
   --border-radius-sm: 6px;
   --sidebar-width: 320px;
   --transition-speed: 0.25s;
+  /* Theme-specific tokens */
+  --header-bg: linear-gradient(to bottom, rgba(8, 8, 10, 0.8) 0%, rgba(8, 8, 10, 0) 100%);
+  --footer-bg: rgba(8, 8, 10, 0.9);
+  --loader-bg: #070709;
+  --select-option-bg: #1a1a22;
+  --select-option-color: #f3f4f6;
+  --range-track: rgba(255, 255, 255, 0.1);
+  --range-track-hover: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --badge-bg: rgba(255, 255, 255, 0.1);
+  --badge-border: rgba(255, 255, 255, 0.15);
+  --logo-gradient: linear-gradient(120deg, #ffffff, #888888);
+  --canvas-gradient-dark: radial-gradient(circle, #2d2d38 0%, #0d0d12 100%);
+  --canvas-gradient-light: radial-gradient(circle, #eeeef4 0%, #d4d4e0 100%);
+  --scene-gradient: var(--canvas-gradient-dark);
+  color-scheme: dark;
+}
+
+/* ============================================
+   Light Theme
+   ============================================ */
+[data-theme="light"] {
+  --bg-color: #f0f1f5;
+  --bg-gradient: radial-gradient(circle at top right, #e0e2ea 0%, #f0f1f5 100%);
+  --sidebar-bg: rgba(255, 255, 255, 0.72);
+  --sidebar-border: rgba(0, 0, 0, 0.1);
+  --text-main: #1a1a2e;
+  --text-muted: #5c5c78;
+  --text-dark: #8888a0;
+  --accent-color: #2daf10;
+  --accent-hover: #24960c;
+  --accent-glow: rgba(45, 175, 16, 0.25);
+  --card-bg: rgba(0, 0, 0, 0.025);
+  --card-hover: rgba(0, 0, 0, 0.055);
+  --header-bg: linear-gradient(to bottom, rgba(240, 241, 245, 0.92) 0%, rgba(240, 241, 245, 0) 100%);
+  --footer-bg: rgba(240, 241, 245, 0.92);
+  --loader-bg: #eaebf0;
+  --select-option-bg: #ffffff;
+  --select-option-color: #1a1a2e;
+  --range-track: rgba(0, 0, 0, 0.1);
+  --range-track-hover: rgba(0, 0, 0, 0.16);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --input-bg: rgba(0, 0, 0, 0.04);
+  --badge-bg: rgba(0, 0, 0, 0.06);
+  --badge-border: rgba(0, 0, 0, 0.12);
+  --logo-gradient: linear-gradient(120deg, #1a1a2e, #555577);
+  --scene-gradient: var(--canvas-gradient-light);
+  color-scheme: light;
 }
 
 * {
@@ -54,7 +105,7 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: #070709;
+  background-color: var(--loader-bg);
   z-index: 9999;
   display: flex;
   justify-content: center;
@@ -144,7 +195,7 @@ body {
 .header {
   grid-column: 1 / span 3;
   height: 64px;
-  background: linear-gradient(to bottom, rgba(8, 8, 10, 0.8) 0%, rgba(8, 8, 10, 0) 100%);
+  background: var(--header-bg);
   border-bottom: 1px solid var(--sidebar-border);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -174,27 +225,28 @@ body {
   font-weight: 700;
   letter-spacing: 0.1em;
   font-family: var(--font-code);
-  background: linear-gradient(120deg, #ffffff, #888888);
+  background: var(--logo-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .badge {
   font-size: 0.65rem;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--badge-bg);
   color: var(--text-main);
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 600;
   letter-spacing: 0.05em;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--badge-border);
 }
 
 .header-center {
   font-family: var(--font-code);
   font-size: 0.85rem;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--input-bg);
   padding: 6px 16px;
   border-radius: 20px;
   border: 1px solid var(--sidebar-border);
@@ -210,8 +262,10 @@ body {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 64px - 40px);
+  min-height: 0; /* Critical for flexbox children to shrink and allow overflow scroll */
   transition: transform var(--transition-speed) ease;
   z-index: 15;
+  overflow: hidden; /* Prevent sidebar itself from overflowing; scroll is in sidebar-scroll */
 }
 
 .sidebar-left {
@@ -225,12 +279,17 @@ body {
 }
 
 .sidebar-scroll {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0; /* Allows flex child to shrink below its content size */
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* Ensure touch scrolling works on mobile */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; /* Prevent scroll chaining to parent/canvas */
 }
 
 /* Customize scrollbars for sidebar */
@@ -241,11 +300,17 @@ body {
   background: transparent;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--scrollbar-thumb);
   border-radius: 2px;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Firefox scrollbar styling */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 /* Control Group (Collapsible / Accordion Panels) */
@@ -255,10 +320,11 @@ body {
   border: 1px solid var(--sidebar-border);
   overflow: hidden;
   transition: background-color var(--transition-speed);
+  flex-shrink: 0; /* Prevent control groups from shrinking — let parent scroll */
 }
 
 .control-group:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--card-hover);
 }
 
 .control-group-header {
@@ -291,6 +357,7 @@ body {
   border-bottom: 2px solid var(--text-muted);
   transform: rotate(45deg);
   transition: transform var(--transition-speed) ease;
+  flex-shrink: 0;
 }
 
 .control-group.expanded .control-group-header::after {
@@ -351,14 +418,14 @@ input[type="range"] {
   width: 100%;
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--range-track);
   outline: none;
   cursor: pointer;
   transition: background 0.3s;
 }
 
 input[type="range"]:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--range-track-hover);
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -398,7 +465,7 @@ input[type="range"]::-moz-range-thumb:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--input-bg);
   padding: 6px;
   border-radius: var(--border-radius-md);
   border: 1px solid var(--sidebar-border);
@@ -419,7 +486,7 @@ input[type="color"]::-webkit-color-swatch-wrapper {
 }
 
 input[type="color"]::-webkit-color-swatch {
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--badge-border);
   border-radius: var(--border-radius-sm);
 }
 
@@ -435,7 +502,7 @@ input[type="color"]::-webkit-color-swatch {
 /* Form Select / Checkboxes */
 .form-select {
   width: 100%;
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: var(--input-bg);
   border: 1px solid var(--sidebar-border);
   color: var(--text-main);
   border-radius: var(--border-radius-md);
@@ -448,7 +515,14 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .form-select:focus {
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: var(--scrollbar-thumb-hover);
+}
+
+/* Fix native dropdown option readability */
+.form-select option {
+  background-color: var(--select-option-bg);
+  color: var(--select-option-color);
+  padding: 8px;
 }
 
 .checkbox-row {
@@ -468,11 +542,12 @@ input[type="checkbox"] {
   width: 18px;
   height: 18px;
   border: 1px solid var(--sidebar-border);
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: var(--input-bg);
   border-radius: 4px;
   cursor: pointer;
   position: relative;
   transition: border-color 0.2s, background-color 0.2s;
+  flex-shrink: 0;
 }
 
 input[type="checkbox"]:checked {
@@ -500,7 +575,7 @@ input[type="checkbox"]:checked::after {
 }
 
 .preset-card {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--card-bg);
   border: 1px solid var(--sidebar-border);
   border-radius: var(--border-radius-md);
   padding: 8px;
@@ -514,7 +589,7 @@ input[type="checkbox"]:checked::after {
 
 .preset-card:hover {
   background: var(--card-hover);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--sidebar-border);
 }
 
 .preset-card.active {
@@ -556,7 +631,7 @@ input[type="checkbox"]:checked::after {
   gap: 10px;
   cursor: pointer;
   transition: all var(--transition-speed);
-  background-color: rgba(255, 255, 255, 0.01);
+  background-color: var(--card-bg);
 }
 
 .upload-zone:hover {
@@ -615,7 +690,7 @@ input[type="checkbox"]:checked::after {
   color: var(--text-muted);
   line-height: 1.4;
   padding: 8px;
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: var(--card-bg);
   border-radius: var(--border-radius-sm);
   border-left: 2px solid var(--accent-color);
 }
@@ -654,14 +729,14 @@ input[type="checkbox"]:checked::after {
 }
 
 .btn-secondary {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--card-bg);
   border-color: var(--sidebar-border);
   color: var(--text-main);
 }
 
 .btn-secondary:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+  background-color: var(--card-hover);
+  border-color: var(--scrollbar-thumb-hover);
   transform: translateY(-1px);
 }
 
@@ -680,7 +755,9 @@ input[type="checkbox"]:checked::after {
 .footer {
   grid-column: 1 / span 3;
   height: 40px;
-  background-color: rgba(8, 8, 10, 0.9);
+  min-height: 40px;
+  flex-shrink: 0;
+  background-color: var(--footer-bg);
   border-top: 1px solid var(--sidebar-border);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -698,7 +775,7 @@ input[type="checkbox"]:checked::after {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--card-bg);
   padding: 8px;
   border-radius: var(--border-radius-md);
   border: 1px solid var(--sidebar-border);
@@ -720,33 +797,135 @@ input[type="checkbox"]:checked::after {
   display: flex;
 }
 
-/* Responsive Grid Adjustments */
-@media (max-width: 960px) {
-  .ui-overlay {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr auto;
-    overflow-y: auto;
-    height: 100vh;
+/* ============================================
+   Theme Toggle Button
+   ============================================ */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-icon-only {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.btn-icon-only .btn-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Show/hide sun and moon icons based on theme */
+.icon-sun { display: block; }
+.icon-moon { display: none; }
+[data-theme="light"] .icon-sun { display: none; }
+[data-theme="light"] .icon-moon { display: block; }
+
+/* ============================================
+   Responsive Grid Adjustments
+   ============================================ */
+
+/* Medium screens: narrower sidebars */
+@media (max-width: 1200px) {
+  :root {
+    --sidebar-width: 280px;
   }
-  
-  .sidebar {
-    width: 100%;
-    height: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--sidebar-border);
+}
+
+/* Tablet / small screens: stack vertically */
+@media (max-width: 960px) {
+  :root {
+    --sidebar-width: 100%;
   }
 
-  .sidebar-right {
-    border-left: none;
+  .ui-overlay {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    height: 100vh;
+    -webkit-overflow-scrolling: touch;
   }
 
   .header {
     grid-column: 1;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--sidebar-border);
+    overflow: visible;
+  }
+
+  .sidebar-left {
+    grid-column: 1;
+    order: 1;
+  }
+
+  .sidebar-right {
+    grid-column: 1;
+    order: 2;
+    border-left: none;
+  }
+
+  .sidebar-scroll {
+    overflow-y: visible;
+    flex: none;
   }
 
   .footer {
     grid-column: 1;
-    position: relative;
+    order: 3;
+    position: sticky;
     bottom: 0;
+  }
+
+  /* Canvas sits behind UI in mobile layout */
+  .canvas-container {
+    position: fixed;
+    z-index: 0;
+  }
+}
+
+/* Small phone screens: further compact */
+@media (max-width: 480px) {
+  .header {
+    padding: 0 12px;
+    height: 52px;
+  }
+
+  .header-center {
+    display: none;
+  }
+
+  .header-left h1 {
+    font-size: 0.9rem;
+  }
+
+  .sidebar-scroll {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .control-group.expanded .control-group-content {
+    padding: 12px;
+  }
+
+  .footer {
+    padding: 0 12px;
+    height: 36px;
+    min-height: 36px;
   }
 }

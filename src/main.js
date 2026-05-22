@@ -11,8 +11,12 @@ let scene, camera, renderer, controls;
 let currentModel = null;
 let modelStats = { meshes: 0, vertices: 0, triangles: 0 };
 let pmremGenerator, proceduralEnvTexture;
-let voxelInstancedMesh = null;
+let voxelInstancedMesh = null;       // bricks (3-plate-tall) in heightmap mode; primary body in voxelize mode
+let voxelPlateInstancedMesh = null;  // plates (1-plate-tall); only used in heightmap mode
 let voxelStudInstancedMesh = null;
+let brickCapacity = 0;
+let plateCapacity = 0;
+let studCapacity = 0;
 let mediaAspect = 1.0;
 
 // Voxel UV and Color states
@@ -86,6 +90,7 @@ const displayProjectName = document.getElementById('display-project-name');
 const blockMode = document.getElementById('block-mode');
 const blockShape = document.getElementById('block-shape');
 const blockLegoSnap = document.getElementById('block-lego-snap');
+const blockMix = document.getElementById('block-mix');
 const blockResolution = document.getElementById('block-resolution');
 const valBlockResolution = document.getElementById('val-block-resolution');
 const blockGap = document.getElementById('block-gap');
@@ -106,9 +111,15 @@ const mediaMapping = document.getElementById('media-mapping');
 const mediaHeightScaleRow = document.getElementById('media-height-scale-row');
 const mediaHeightScale = document.getElementById('media-height-scale');
 const valMediaHeightScale = document.getElementById('val-media-height-scale');
+const mediaHeightInvertRow = document.getElementById('media-height-invert-row');
+const mediaHeightInvert = document.getElementById('media-height-invert');
+const mediaBrightnessRow = document.getElementById('media-brightness-row');
+const mediaBrightness = document.getElementById('media-brightness');
+const valMediaBrightness = document.getElementById('val-media-brightness');
 
 // Buttons & Interaction
 const btnReset = document.getElementById('btn-reset');
+const btnTheme = document.getElementById('btn-theme');
 const btnScreenshot = document.getElementById('btn-screenshot');
 const btnExportGlb = document.getElementById('btn-export-glb');
 const modelUpload = document.getElementById('model-upload');
@@ -133,7 +144,7 @@ const physicalMaterial = new THREE.MeshPhysicalMaterial({
 });
 
 // Key directional light and hemi sky light
-let dirLight, hemiLight;
+let dirLight, hemiLight, fillLight, rimLight;
 
 // --- Step 1: Initialize Three.js Environment ---
 function init() {
@@ -165,8 +176,11 @@ function init() {
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 1.0 / parseFloat(animMass.value); // Maps to easing inertia
-  controls.autoRotate = animAutoRotate.checked;
+  controls.autoRotate = false; // Disabled on startup for better UX
   controls.autoRotateSpeed = parseFloat(animSpeed.value) * 50.0;
+
+  // Uncheck the auto-rotate checkbox to match the actual state
+  animAutoRotate.checked = false;
   controls.maxDistance = 150;
   controls.minDistance = 2;
 
@@ -193,6 +207,16 @@ function init() {
   dirLight.shadow.bias = -0.0005;
   scene.add(dirLight);
 
+  // Studio 3-point: cool fill light from opposite side lifts shadow side without
+  // washing out shape. Rim light from behind-above traces the silhouette / stud edges.
+  fillLight = new THREE.DirectionalLight(0xdce8ff, 1.0);
+  fillLight.position.set(-8, 6, 6);
+  scene.add(fillLight);
+
+  rimLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  rimLight.position.set(2, 8, -10);
+  scene.add(rimLight);
+
   // 6. PMREM Procedural Environment Reflection Map
   pmremGenerator = new THREE.PMREMGenerator(renderer);
   pmremGenerator.compileEquirectangularShader();
@@ -205,6 +229,13 @@ function init() {
   window.addEventListener('resize', onWindowResize);
   setupUIEventListeners();
   setupAccordionControls();
+
+  // 9. Prevent scroll wheel events on sidebars from being captured by OrbitControls
+  document.querySelectorAll('.sidebar-scroll').forEach((el) => {
+    el.addEventListener('wheel', (e) => {
+      e.stopPropagation();
+    }, { passive: false });
+  });
 }
 
 // --- Step 2: Generate Procedural Environment reflection map ---
@@ -286,8 +317,8 @@ function loadDefaultModel() {
       const targetScale = 0.069357 * parseFloat(modelScale.value);
       currentModel.scale.set(targetScale, targetScale, targetScale);
 
-      // Hide loader
-      showLoader(false);
+      // Load default heightmap as initial startup view
+      loadDefaultHeightmap();
     },
     (xhr) => {
       if (xhr.total > 0) {
@@ -302,7 +333,7 @@ function loadDefaultModel() {
       loaderProgress.textContent = 'Loading failed. Use custom upload!';
       // Show default placeholder shape (TorusKnot) if the fbx failed to load
       createPlaceholderShape();
-      showLoader(false);
+      loadDefaultHeightmap();
     }
   );
 }
@@ -318,6 +349,7 @@ function setupModelInScene(object) {
 
   // Clear any existing instanced mesh reference since we loaded a new model
   voxelInstancedMesh = null;
+  voxelPlateInstancedMesh = null;
   voxelStudInstancedMesh = null;
 
   // Initialize stats
@@ -391,24 +423,33 @@ function formatNumber(num) {
 // No longer needs a merged geometry since box base and studs are rendered as separate InstancedMeshes
 // to prevent vertical stretching of studs in heightmap mode.
 
-// --- Official LEGO Color Palette & Snapping ---
+// --- LEGO Color Palette: 24 colors covering standard, Earth, and pastel tones
+// to ensure snapped colors match uploaded images with high fidelity.
 const LEGO_PALETTE = [
+  new THREE.Color('#FFFFFF'), // White
+  new THREE.Color('#1B2A34'), // Black
+  new THREE.Color('#9BABAC'), // Light Grey / Medium Stone Grey
+  new THREE.Color('#5C5C5C'), // Dark Grey / Dark Stone Grey
   new THREE.Color('#C91A09'), // Red
   new THREE.Color('#0055BF'), // Blue
   new THREE.Color('#F2CD37'), // Yellow
   new THREE.Color('#237841'), // Green
-  new THREE.Color('#1B2A34'), // Black
-  new THREE.Color('#F2F3F2'), // White
+  new THREE.Color('#184632'), // Dark Green
   new THREE.Color('#F57D11'), // Orange
+  new THREE.Color('#58251B'), // Reddish Brown
+  new THREE.Color('#DFB17B'), // Tan / Brick Yellow
+  new THREE.Color('#5A93DB'), // Medium Blue
+  new THREE.Color('#F45C96'), // Bright Pink
+  new THREE.Color('#E1A6E8'), // Lavender
+  new THREE.Color('#92397F'), // Magenta
   new THREE.Color('#BBE90B'), // Lime Green
-  new THREE.Color('#672196'), // Purple
-  new THREE.Color('#F4B5CD'), // Pink
-  new THREE.Color('#583927'), // Brown
-  new THREE.Color('#5F5F5F'), // Dark Grey
-  new THREE.Color('#969696'), // Light Grey
-  new THREE.Color('#93B8C1'), // Light Blue
-  new THREE.Color('#D3A5C5'), // Lavender
-  new THREE.Color('#E4CD9E'), // Sand Yellow / Tan
+  new THREE.Color('#708E7A'), // Sand Green
+  new THREE.Color('#0D325B'), // Dark Blue
+  new THREE.Color('#008F9B'), // Dark Turquoise / Teal
+  new THREE.Color('#CC8E56'), // Medium Nougat / Light Brown
+  new THREE.Color('#7C905C'), // Olive Green
+  new THREE.Color('#9FC3E9'), // Sky Blue / Bright Light Blue
+  new THREE.Color('#35211B'), // Dark Brown
 ];
 
 function snapToLegoColor(color) {
@@ -417,13 +458,20 @@ function snapToLegoColor(color) {
   
   for (let i = 0; i < LEGO_PALETTE.length; i++) {
     const pColor = LEGO_PALETTE[i];
-    const dist = Math.sqrt(
-      Math.pow(color.r - pColor.r, 2) +
-      Math.pow(color.g - pColor.g, 2) +
-      Math.pow(color.b - pColor.b, 2)
-    );
-    if (dist < minDistance) {
-      minDistance = dist;
+    
+    // Perceptually weighted RGB color distance (redmean formula)
+    const rmean = (color.r + pColor.r) / 2.0;
+    const r = color.r - pColor.r;
+    const g = color.g - pColor.g;
+    const b = color.b - pColor.b;
+    
+    const weightR = 2.0 + rmean;
+    const weightG = 4.0;
+    const weightB = 3.0 - rmean;
+    
+    const distSq = weightR * r * r + weightG * g * g + weightB * b * b;
+    if (distSq < minDistance) {
+      minDistance = distSq;
       closestColor = pColor;
     }
   }
@@ -441,6 +489,7 @@ function updateBlockEffect() {
     if (voxelInstancedMesh.geometry) voxelInstancedMesh.geometry.dispose();
     if (voxelInstancedMesh.material) voxelInstancedMesh.material.dispose();
     voxelInstancedMesh = null;
+    brickCapacity = 0;
   }
   if (voxelStudInstancedMesh) {
     currentModel.remove(voxelStudInstancedMesh);
@@ -448,12 +497,21 @@ function updateBlockEffect() {
     if (voxelStudInstancedMesh.geometry) voxelStudInstancedMesh.geometry.dispose();
     if (voxelStudInstancedMesh.material) voxelStudInstancedMesh.material.dispose();
     voxelStudInstancedMesh = null;
+    studCapacity = 0;
+  }
+  if (voxelPlateInstancedMesh) {
+    currentModel.remove(voxelPlateInstancedMesh);
+    scene.remove(voxelPlateInstancedMesh);
+    if (voxelPlateInstancedMesh.geometry) voxelPlateInstancedMesh.geometry.dispose();
+    if (voxelPlateInstancedMesh.material) voxelPlateInstancedMesh.material.dispose();
+    voxelPlateInstancedMesh = null;
+    plateCapacity = 0;
   }
 
   // 2. Toggle original mesh visibility based on block mode status
   const active = blockMode.checked;
   currentModel.traverse((child) => {
-    if (child.isMesh && child !== voxelInstancedMesh && child !== voxelStudInstancedMesh) {
+    if (child.isMesh && child !== voxelInstancedMesh && child !== voxelPlateInstancedMesh && child !== voxelStudInstancedMesh) {
       child.visible = !active;
     }
   });
@@ -488,10 +546,17 @@ function updateBlockEffect() {
           studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
         }
         
-        // Use a clone of physicalMaterial with color white so instance colors are unmodified
+        // Use a clone of physicalMaterial with color white so instance colors are unmodified.
+        // Lego bricks are plastic, not glass — strip transmission/metalness from the clone
+        // so colors stay punchy regardless of which preset the 3D model is using.
         const voxelMat = physicalMaterial.clone();
         voxelMat.color.set('#ffffff');
-        
+        voxelMat.transmission = 0;
+        voxelMat.metalness = 0;
+        voxelMat.roughness = 0.5;
+        voxelMat.thickness = 0;
+        voxelMat.ior = 1.5;
+
         voxelInstancedMesh = new THREE.InstancedMesh(voxelGeom, voxelMat, voxels.size);
         voxelInstancedMesh.userData = {
           isHeightmap: false,
@@ -854,6 +919,11 @@ function setupUIEventListeners() {
     controls.reset();
   });
 
+  // Theme Toggle
+  btnTheme.addEventListener('click', () => {
+    toggleTheme();
+  });
+
   btnScreenshot.addEventListener('click', captureScreenshot);
   btnExportGlb.addEventListener('click', exportToGLB);
 
@@ -908,16 +978,28 @@ function setupUIEventListeners() {
     triggerBlockUpdate();
   });
 
+  blockMix.addEventListener('change', () => {
+    // Mix mode needs quantised colours so adjacent cells can merge into a single
+    // brick. Sync "Snap to Lego Colors" so the UI matches actual behaviour.
+    if (blockMix.checked) {
+      blockLegoSnap.checked = true;
+      blockLegoSnap.disabled = true;
+    } else {
+      blockLegoSnap.disabled = false;
+    }
+    triggerBlockUpdate();
+  });
+
   blockResolution.addEventListener('input', (e) => {
     const val = parseInt(e.target.value);
     valBlockResolution.textContent = val;
-    triggerBlockUpdate();
+    debouncedTriggerBlockUpdate();
   });
 
   blockGap.addEventListener('input', (e) => {
     const val = parseInt(e.target.value);
     valBlockGap.textContent = `${val}%`;
-    triggerBlockUpdate();
+    debouncedTriggerBlockUpdate();
   });
 
   // 9. Media Upload Listeners
@@ -953,12 +1035,20 @@ function setupUIEventListeners() {
     applyMediaMapping();
   });
 
+  mediaBrightness.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    valMediaBrightness.textContent = val.toFixed(2);
+    debouncedTriggerBlockUpdate();
+  });
+
   mediaHeightScale.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     valMediaHeightScale.textContent = val.toFixed(1);
-    if (mediaMapping.value === 'heightmap') {
-      updateBlockHeightmap();
-    }
+    debouncedTriggerBlockUpdate();
+  });
+
+  mediaHeightInvert.addEventListener('change', () => {
+    triggerBlockUpdate();
   });
 
   btnVideoPlay.addEventListener('click', () => {
@@ -988,6 +1078,83 @@ function triggerBlockUpdate() {
   } else {
     updateBlockEffect();
   }
+}
+
+let blockUpdateTimeout = null;
+function debouncedTriggerBlockUpdate() {
+  if (blockUpdateTimeout) clearTimeout(blockUpdateTimeout);
+  blockUpdateTimeout = setTimeout(() => {
+    triggerBlockUpdate();
+  }, 40);
+}
+
+// Loads the default heightmap image on startup
+function loadDefaultHeightmap() {
+  loaderProgress.textContent = 'Loading heightmap...';
+  
+  // Reset media state
+  isMediaLoaded = false;
+  mediaAspect = 1.0;
+  if (loadedMediaElement) {
+    if (loadedMediaType === 'video') {
+      loadedMediaElement.pause();
+      loadedMediaElement.removeAttribute('src');
+      loadedMediaElement.load();
+    }
+    loadedMediaElement = null;
+  }
+  
+  if (loadedMediaTexture) {
+    loadedMediaTexture.dispose();
+    loadedMediaTexture = null;
+  }
+
+  loadedMediaType = 'image';
+  mediaTypeBadge.textContent = 'IMAGE';
+  mediaVideoControls.style.display = 'none';
+  
+  const img = new Image();
+  img.src = '/default-heightmap.png';
+  img.onload = () => {
+    loadedMediaElement = img;
+    isMediaLoaded = true;
+    
+    // Create Texture
+    loadedMediaTexture = new THREE.Texture(img);
+    loadedMediaTexture.colorSpace = THREE.SRGBColorSpace;
+    loadedMediaTexture.needsUpdate = true;
+    
+    // Setup offscreen canvas size to match image (cap to 256 for speed)
+    const size = Math.min(256, Math.max(img.width, img.height));
+    const aspect = img.width / img.height;
+    mediaAspect = aspect;
+    samplingCanvas.width = aspect >= 1 ? size : size * aspect;
+    samplingCanvas.height = aspect >= 1 ? size / aspect : size;
+    
+    // Draw image to sample canvas once
+    samplingCtx.drawImage(img, 0, 0, samplingCanvas.width, samplingCanvas.height);
+    samplingData = samplingCtx.getImageData(0, 0, samplingCanvas.width, samplingCanvas.height);
+    
+    // Draw preview canvas
+    mediaPreviewCanvas.width = 60;
+    mediaPreviewCanvas.height = 60;
+    mediaPreviewCtx.drawImage(img, 0, 0, 60, 60);
+
+    // Show status bar and set filename
+    mediaInfoWrapper.style.display = 'block';
+    mediaFilename.textContent = 'default-heightmap.png';
+
+    // Uploaded image becomes the scene's primary subject — auto-switch to heightmap.
+    mediaMapping.value = 'heightmap';
+    applyMediaMapping();
+    resetCameraPosition();
+    
+    showLoader(false);
+  };
+  img.onerror = (err) => {
+    console.error('Error loading default heightmap image:', err);
+    showLoader(false);
+  };
 }
 
 // Handles image/video files uploaded by the user
@@ -1048,7 +1215,8 @@ function handleMediaFile(file) {
       mediaPreviewCanvas.height = 60;
       mediaPreviewCtx.drawImage(img, 0, 0, 60, 60);
 
-      // Trigger update
+      // Uploaded image becomes the scene's primary subject — auto-switch to heightmap.
+      mediaMapping.value = 'heightmap';
       applyMediaMapping();
     };
   } else if (['mp4', 'webm', 'ogg', 'mov'].includes(extension) || file.type.startsWith('video/')) {
@@ -1083,8 +1251,9 @@ function handleMediaFile(file) {
       
       // Play
       video.play();
-      
-      // Trigger update
+
+      // Uploaded video becomes the scene's primary subject — auto-switch to heightmap.
+      mediaMapping.value = 'heightmap';
       applyMediaMapping();
     };
   } else {
@@ -1106,19 +1275,34 @@ function applyMediaMapping() {
     if (mediaMapping.value === 'heightmap') {
       if (voxelInstancedMesh) {
         scene.remove(voxelInstancedMesh);
+        if (voxelInstancedMesh.geometry) voxelInstancedMesh.geometry.dispose();
+        if (voxelInstancedMesh.material) voxelInstancedMesh.material.dispose();
         voxelInstancedMesh = null;
       }
+      brickCapacity = 0;
+      if (voxelPlateInstancedMesh) {
+        scene.remove(voxelPlateInstancedMesh);
+        if (voxelPlateInstancedMesh.geometry) voxelPlateInstancedMesh.geometry.dispose();
+        if (voxelPlateInstancedMesh.material) voxelPlateInstancedMesh.material.dispose();
+        voxelPlateInstancedMesh = null;
+      }
+      plateCapacity = 0;
       if (voxelStudInstancedMesh) {
         scene.remove(voxelStudInstancedMesh);
+        if (voxelStudInstancedMesh.geometry) voxelStudInstancedMesh.geometry.dispose();
+        if (voxelStudInstancedMesh.material) voxelStudInstancedMesh.material.dispose();
         voxelStudInstancedMesh = null;
       }
+      studCapacity = 0;
       if (currentModel) {
         currentModel.traverse(c => {
-          if (c.isMesh && c !== voxelInstancedMesh && c !== voxelStudInstancedMesh) c.visible = true;
+          if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) c.visible = true;
         });
       }
     }
     mediaHeightScaleRow.style.display = 'none';
+    mediaHeightInvertRow.style.display = 'none';
+    mediaBrightnessRow.style.display = 'none';
     updateBlockEffect();
     return;
   }
@@ -1127,13 +1311,15 @@ function applyMediaMapping() {
 
   if (mappingMode === 'background') {
     mediaHeightScaleRow.style.display = 'none';
+    mediaHeightInvertRow.style.display = 'none';
+    mediaBrightnessRow.style.display = 'none';
     scene.background = loadedMediaTexture;
     document.querySelector('.canvas-container').style.background = 'none';
     
     // Hide heightmap voxel mesh if active, restore model visibility
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelStudInstancedMesh) {
+        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) {
           c.visible = !blockMode.checked;
         }
       });
@@ -1141,13 +1327,15 @@ function applyMediaMapping() {
     updateBlockEffect();
   } else if (mappingMode === 'model') {
     mediaHeightScaleRow.style.display = 'none';
+    mediaHeightInvertRow.style.display = 'none';
+    mediaBrightnessRow.style.display = 'block';
     physicalMaterial.map = loadedMediaTexture;
     physicalMaterial.needsUpdate = true;
     
     // Restore model visibility
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelStudInstancedMesh) {
+        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) {
           c.visible = !blockMode.checked;
         }
       });
@@ -1155,19 +1343,23 @@ function applyMediaMapping() {
     updateBlockEffect();
   } else if (mappingMode === 'heightmap') {
     mediaHeightScaleRow.style.display = 'block';
+    mediaHeightInvertRow.style.display = 'flex';
+    mediaBrightnessRow.style.display = 'block';
     
     // Hide original meshes completely
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelStudInstancedMesh) c.visible = false;
+        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) c.visible = false;
       });
     }
     updateBlockHeightmap();
   } else {
     mediaHeightScaleRow.style.display = 'none';
+    mediaHeightInvertRow.style.display = 'none';
+    mediaBrightnessRow.style.display = 'none';
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelStudInstancedMesh) {
+        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) {
           c.visible = !blockMode.checked;
         }
       });
@@ -1180,11 +1372,10 @@ function applyMediaMapping() {
 function updateBlockHeightmap() {
   if (!isMediaLoaded || mediaMapping.value !== 'heightmap') return;
 
+  const shape = blockShape.value;
   const resolution = parseInt(blockResolution.value);
   const gapPercent = parseFloat(blockGap.value) / 100.0;
-  const shape = blockShape.value;
 
-  // Determine grid dimensions based on media aspect ratio
   let cols, rows;
   if (mediaAspect >= 1.0) {
     cols = resolution;
@@ -1195,151 +1386,386 @@ function updateBlockHeightmap() {
   }
   const gridCount = cols * rows;
 
-  const needsRecreate = !voxelInstancedMesh || 
-    !voxelInstancedMesh.userData.isHeightmap ||
-    voxelInstancedMesh.count !== gridCount ||
-    voxelInstancedMesh.userData.shape !== shape ||
-    voxelInstancedMesh.userData.gapPercent !== gapPercent;
-
   const boardWidth = 10.0;
   const voxelSize = boardWidth / resolution;
   const boxSize = voxelSize * (1.0 - gapPercent);
-  const heightFactor = (shape === 'lego') ? 1.2 : (shape === 'lego-plate' ? 0.4 : 1.0);
-  const boxHeight = boxSize * heightFactor;
+  const plateH = boxSize * 0.4;          // 1 plate unit height
+  const brickH = plateH * 3;             // 1 brick = 3 plates (real-world Lego ratio)
   const studRadius = boxSize * 0.3;
   const studHeight = boxSize * 0.2;
 
-  if (needsRecreate) {
-    if (voxelInstancedMesh) {
-      scene.remove(voxelInstancedMesh);
-      if (currentModel) currentModel.remove(voxelInstancedMesh);
-      if (voxelInstancedMesh.geometry) voxelInstancedMesh.geometry.dispose();
-      if (voxelInstancedMesh.material) voxelInstancedMesh.material.dispose();
-      voxelInstancedMesh = null;
-    }
-    if (voxelStudInstancedMesh) {
-      scene.remove(voxelStudInstancedMesh);
-      if (currentModel) currentModel.remove(voxelStudInstancedMesh);
-      if (voxelStudInstancedMesh.geometry) voxelStudInstancedMesh.geometry.dispose();
-      if (voxelStudInstancedMesh.material) voxelStudInstancedMesh.material.dispose();
-      voxelStudInstancedMesh = null;
-    }
-
-    // Create shape geometry
-    const voxelGeom = new THREE.BoxGeometry(boxSize, boxHeight, boxSize);
-    let studGeom = null;
-    if (shape === 'lego' || shape === 'lego-plate') {
-      studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
-    }
-
-    // Use texture-mapped white material for precise color representation
-    const voxelMat = physicalMaterial.clone();
-    voxelMat.color.set('#ffffff');
-
-    voxelInstancedMesh = new THREE.InstancedMesh(voxelGeom, voxelMat, gridCount);
-    voxelInstancedMesh.userData = {
-      isHeightmap: true,
-      shape: shape,
-      gapPercent: gapPercent
-    };
-    voxelInstancedMesh.castShadow = true;
-    voxelInstancedMesh.receiveShadow = true;
-    scene.add(voxelInstancedMesh);
-
-    if (studGeom) {
-      const studMat = voxelMat.clone();
-      voxelStudInstancedMesh = new THREE.InstancedMesh(studGeom, studMat, gridCount);
-      voxelStudInstancedMesh.userData = {
-        isHeightmap: true,
-        shape: shape,
-        gapPercent: gapPercent
-      };
-      voxelStudInstancedMesh.castShadow = true;
-      voxelStudInstancedMesh.receiveShadow = true;
-      scene.add(voxelStudInstancedMesh);
-    }
-  }
-
-  // Sample canvas pixels
   sampleOffscreenCanvas();
 
   const heightScale = parseFloat(mediaHeightScale.value);
+  const invertHeight = mediaHeightInvert.checked;
+  const mixBricks = blockMix.checked;
+  // Mixing requires quantized colours so neighbours can match — force lego snap
+  // for the match key (and the displayed colour) when mix is on.
+  const useLegoColors = blockLegoSnap.checked || mixBricks;
 
-  const dummy = new THREE.Object3D();
-  const studDummy = new THREE.Object3D();
-  let idx = 0;
+  // Pass 1: per-cell layer count (in plate units), display colour, match key.
+  const cellLayers = new Int16Array(gridCount);
+  const cellColors = new Array(gridCount);
+  const cellKeys = new Int32Array(gridCount);
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const u = c / (cols - 1 || 1);
       const v = r / (rows - 1 || 1);
+      const px = getSampledPixelColor(u, v);
+      const alpha = getSampledPixelAlpha(u, v);
+      
+      let layers = 0;
+      if (alpha >= 0.1) {
+        const brightness = 0.299 * px.r + 0.587 * px.g + 0.114 * px.b;
+        const h = invertHeight ? (1 - brightness) : brightness;
+        layers = Math.max(1, Math.round(h * heightScale));
+      }
 
-      let pixelColor = getSampledPixelColor(u, v);
-      const brightness = 0.299 * pixelColor.r + 0.587 * pixelColor.g + 0.114 * pixelColor.b;
+      let display = px;
+      let key = 0;
+      if (useLegoColors) {
+        display = snapToLegoColor(px);
+        key = (Math.round(display.r * 255) << 16) | (Math.round(display.g * 255) << 8) | Math.round(display.b * 255);
+      }
+      const i = r * cols + c;
+      cellLayers[i] = layers;
+      cellColors[i] = display;
+      cellKeys[i] = key;
+    }
+  }
 
-      // Quantize height to discrete layers of bricks/plates
-      const layers = Math.max(1, Math.round(brightness * heightScale));
+  // Pass 2: greedy footprint packing (mix mode) — longer bricks first so flat colour
+  // regions get realistic 1x6 / 1x8 / 2x8 bars like real Lego sets.
+  const bricks = [];
+  if (mixBricks && shape !== 'cube') {
+    const covered = new Uint8Array(gridCount);
+    const sizes = [
+      [8, 2], [2, 8], [6, 2], [2, 6], [8, 1], [1, 8], [6, 1], [1, 6],
+      [4, 2], [2, 4], [3, 2], [2, 3], [2, 2],
+      [4, 1], [1, 4], [3, 1], [1, 3], [2, 1], [1, 2],
+      [1, 1]
+    ];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i0 = r * cols + c;
+        if (covered[i0]) continue;
+        const h0 = cellLayers[i0];
+        if (h0 <= 0) {
+          covered[i0] = 1;
+          continue;
+        }
+        const k0 = cellKeys[i0];
+        let pickedW = 1, pickedD = 1;
+        const start = (r * 7 + c * 13) % sizes.length;
+        for (let s = 0; s < sizes.length; s++) {
+          const [w, d] = sizes[(start + s) % sizes.length];
+          if (c + w > cols || r + d > rows) continue;
+          let ok = true;
+          for (let dr = 0; dr < d && ok; dr++) {
+            for (let dc = 0; dc < w; dc++) {
+              const idx = (r + dr) * cols + (c + dc);
+              if (covered[idx] || cellLayers[idx] !== h0 || cellKeys[idx] !== k0) { ok = false; break; }
+            }
+          }
+          if (ok) { pickedW = w; pickedD = d; break; }
+        }
+        for (let dr = 0; dr < pickedD; dr++) {
+          for (let dc = 0; dc < pickedW; dc++) {
+            covered[(r + dr) * cols + (c + dc)] = 1;
+          }
+        }
+        bricks.push({ r, c, w: pickedW, d: pickedD, layers: h0, color: cellColors[i0] });
+      }
+    }
+  } else {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (cellLayers[i] <= 0) continue;
+        bricks.push({ r, c, w: 1, d: 1, layers: cellLayers[i], color: cellColors[i] });
+      }
+    }
+  }
 
-      const posX = (c - cols / 2 + 0.5) * voxelSize;
-      const posZ = (r - rows / 2 + 0.5) * voxelSize;
-      const posY = (layers * boxHeight) / 2; // Sit on ground
+  // Pre-calculate exact instance counts required for bricks, plates, and studs
+  let neededBricks = 0;
+  let neededPlates = 0;
+  let neededStuds = 0;
 
-      dummy.position.set(posX, posY, posZ);
-      dummy.scale.set(1.0, layers, 1.0);
+  for (const b of bricks) {
+    if (shape === 'lego') {
+      const brickCount = Math.floor(b.layers / 3);
+      const plateCount = b.layers % 3;
+      neededBricks += brickCount;
+      neededPlates += plateCount;
+      neededStuds += b.w * b.d;
+    } else if (shape === 'lego-plate') {
+      neededPlates += b.layers;
+      neededStuds += b.w * b.d;
+    } else if (shape === 'cube') {
+      neededBricks += 1;
+    }
+  }
+
+  // Dynamically manage / pool InstancedMesh for bricks
+  if (neededBricks > 0) {
+    const brickGeomHeight = (shape === 'lego') ? brickH : boxSize;
+    const needsRecreate = !voxelInstancedMesh || 
+      !voxelInstancedMesh.userData.isHeightmap ||
+      voxelInstancedMesh.userData.shape !== shape ||
+      voxelInstancedMesh.userData.gapPercent !== gapPercent ||
+      voxelInstancedMesh.userData.voxelSize !== voxelSize ||
+      brickCapacity < neededBricks;
+
+    if (needsRecreate) {
+      if (voxelInstancedMesh) {
+        scene.remove(voxelInstancedMesh);
+        if (voxelInstancedMesh.geometry) voxelInstancedMesh.geometry.dispose();
+        if (voxelInstancedMesh.material) voxelInstancedMesh.material.dispose();
+      }
+      brickCapacity = Math.max(512, Math.round(neededBricks * 1.2));
+      const voxelGeom = new THREE.BoxGeometry(boxSize, brickGeomHeight, boxSize);
+      const voxelMat = physicalMaterial.clone();
+      voxelMat.color.set('#ffffff');
+
+      voxelInstancedMesh = new THREE.InstancedMesh(voxelGeom, voxelMat, brickCapacity);
+      voxelInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(brickCapacity * 3), 3);
+      voxelInstancedMesh.userData = {
+        isHeightmap: true,
+        shape: shape,
+        gapPercent: gapPercent,
+        voxelSize: voxelSize
+      };
+      voxelInstancedMesh.castShadow = true;
+      voxelInstancedMesh.receiveShadow = true;
+      scene.add(voxelInstancedMesh);
+    }
+    voxelInstancedMesh.count = neededBricks;
+    voxelInstancedMesh.visible = true;
+  } else {
+    if (voxelInstancedMesh) {
+      voxelInstancedMesh.count = 0;
+      voxelInstancedMesh.visible = false;
+    }
+  }
+
+  // Dynamically manage / pool InstancedMesh for plates
+  if (neededPlates > 0) {
+    const needsRecreate = !voxelPlateInstancedMesh || 
+      !voxelPlateInstancedMesh.userData.isHeightmap ||
+      voxelPlateInstancedMesh.userData.shape !== shape ||
+      voxelPlateInstancedMesh.userData.gapPercent !== gapPercent ||
+      voxelPlateInstancedMesh.userData.voxelSize !== voxelSize ||
+      plateCapacity < neededPlates;
+
+    if (needsRecreate) {
+      if (voxelPlateInstancedMesh) {
+        scene.remove(voxelPlateInstancedMesh);
+        if (voxelPlateInstancedMesh.geometry) voxelPlateInstancedMesh.geometry.dispose();
+        if (voxelPlateInstancedMesh.material) voxelPlateInstancedMesh.material.dispose();
+      }
+      plateCapacity = Math.max(512, Math.round(neededPlates * 1.2));
+      const plateGeom = new THREE.BoxGeometry(boxSize, plateH, boxSize);
+      const plateMat = physicalMaterial.clone();
+      plateMat.color.set('#ffffff');
+
+      voxelPlateInstancedMesh = new THREE.InstancedMesh(plateGeom, plateMat, plateCapacity);
+      voxelPlateInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(plateCapacity * 3), 3);
+      voxelPlateInstancedMesh.userData = {
+        isHeightmap: true,
+        shape: shape,
+        gapPercent: gapPercent,
+        voxelSize: voxelSize
+      };
+      voxelPlateInstancedMesh.castShadow = true;
+      voxelPlateInstancedMesh.receiveShadow = true;
+      scene.add(voxelPlateInstancedMesh);
+    }
+    voxelPlateInstancedMesh.count = neededPlates;
+    voxelPlateInstancedMesh.visible = true;
+  } else {
+    if (voxelPlateInstancedMesh) {
+      voxelPlateInstancedMesh.count = 0;
+      voxelPlateInstancedMesh.visible = false;
+    }
+  }
+
+  // Dynamically manage / pool InstancedMesh for studs
+  if (neededStuds > 0) {
+    const needsRecreate = !voxelStudInstancedMesh || 
+      !voxelStudInstancedMesh.userData.isHeightmap ||
+      voxelStudInstancedMesh.userData.shape !== shape ||
+      voxelStudInstancedMesh.userData.gapPercent !== gapPercent ||
+      voxelStudInstancedMesh.userData.voxelSize !== voxelSize ||
+      studCapacity < neededStuds;
+
+    if (needsRecreate) {
+      if (voxelStudInstancedMesh) {
+        scene.remove(voxelStudInstancedMesh);
+        if (voxelStudInstancedMesh.geometry) voxelStudInstancedMesh.geometry.dispose();
+        if (voxelStudInstancedMesh.material) voxelStudInstancedMesh.material.dispose();
+      }
+      studCapacity = Math.max(512, Math.round(neededStuds * 1.2));
+      const studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
+      const studMat = physicalMaterial.clone();
+      studMat.color.set('#ffffff');
+
+      voxelStudInstancedMesh = new THREE.InstancedMesh(studGeom, studMat, studCapacity);
+      voxelStudInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(studCapacity * 3), 3);
+      voxelStudInstancedMesh.userData = {
+        isHeightmap: true,
+        shape: shape,
+        gapPercent: gapPercent,
+        voxelSize: voxelSize
+      };
+      voxelStudInstancedMesh.castShadow = true;
+      voxelStudInstancedMesh.receiveShadow = true;
+      scene.add(voxelStudInstancedMesh);
+    }
+    voxelStudInstancedMesh.count = neededStuds;
+    voxelStudInstancedMesh.visible = true;
+  } else {
+    if (voxelStudInstancedMesh) {
+      voxelStudInstancedMesh.count = 0;
+      voxelStudInstancedMesh.visible = false;
+    }
+  }
+
+  // Pass 3: emit instance matrices.
+  const dummy = new THREE.Object3D();
+  const studDummy = new THREE.Object3D();
+  const denom = (1.0 - gapPercent) || 1e-6;
+  const scaleN = (n) => (n - gapPercent) / denom;
+
+  let brickIdx = 0, plateIdx = 0, studIdx = 0;
+  for (const b of bricks) {
+    const cx = (b.c + b.w / 2 - cols / 2) * voxelSize;
+    const cz = (b.r + b.d / 2 - rows / 2) * voxelSize;
+    const sX = scaleN(b.w);
+    const sZ = scaleN(b.d);
+
+    if (shape === 'lego') {
+      const brickCount = Math.floor(b.layers / 3);
+      const plateCount = b.layers % 3;
+
+      // Stack bricks first (each 3 plate-units tall).
+      for (let i = 0; i < brickCount; i++) {
+        const py = (i + 0.5) * brickH;
+        dummy.position.set(cx, py, cz);
+        dummy.scale.set(sX, 1, sZ);
+        dummy.updateMatrix();
+        voxelInstancedMesh.setMatrixAt(brickIdx, dummy.matrix);
+        voxelInstancedMesh.setColorAt(brickIdx, b.color);
+        brickIdx++;
+      }
+
+      // Then plates on top.
+      const platesBase = brickCount * brickH;
+      for (let i = 0; i < plateCount; i++) {
+        const py = platesBase + (i + 0.5) * plateH;
+        dummy.position.set(cx, py, cz);
+        dummy.scale.set(sX, 1, sZ);
+        dummy.updateMatrix();
+        voxelPlateInstancedMesh.setMatrixAt(plateIdx, dummy.matrix);
+        voxelPlateInstancedMesh.setColorAt(plateIdx, b.color);
+        plateIdx++;
+      }
+
+      // Studs on top
+      const stackTop = brickCount * brickH + plateCount * plateH;
+      for (let dr = 0; dr < b.d; dr++) {
+        for (let dc = 0; dc < b.w; dc++) {
+          const sx = (b.c + dc - cols / 2 + 0.5) * voxelSize;
+          const sz = (b.r + dr - rows / 2 + 0.5) * voxelSize;
+          studDummy.position.set(sx, stackTop + studHeight / 2, sz);
+          studDummy.scale.set(1, 1, 1);
+          studDummy.updateMatrix();
+          voxelStudInstancedMesh.setMatrixAt(studIdx, studDummy.matrix);
+          voxelStudInstancedMesh.setColorAt(studIdx, b.color);
+          studIdx++;
+        }
+      }
+    } else if (shape === 'lego-plate') {
+      // Stack only plates
+      for (let i = 0; i < b.layers; i++) {
+        const py = (i + 0.5) * plateH;
+        dummy.position.set(cx, py, cz);
+        dummy.scale.set(sX, 1, sZ);
+        dummy.updateMatrix();
+        voxelPlateInstancedMesh.setMatrixAt(plateIdx, dummy.matrix);
+        voxelPlateInstancedMesh.setColorAt(plateIdx, b.color);
+        plateIdx++;
+      }
+
+      // Studs on top
+      const stackTop = b.layers * plateH;
+      for (let dr = 0; dr < b.d; dr++) {
+        for (let dc = 0; dc < b.w; dc++) {
+          const sx = (b.c + dc - cols / 2 + 0.5) * voxelSize;
+          const sz = (b.r + dr - rows / 2 + 0.5) * voxelSize;
+          studDummy.position.set(sx, stackTop + studHeight / 2, sz);
+          studDummy.scale.set(1, 1, 1);
+          studDummy.updateMatrix();
+          voxelStudInstancedMesh.setMatrixAt(studIdx, studDummy.matrix);
+          voxelStudInstancedMesh.setColorAt(studIdx, b.color);
+          studIdx++;
+        }
+      }
+    } else if (shape === 'cube') {
+      // Single box/cube per stack
+      const totalH = b.layers * voxelSize;
+      const scaleY = totalH / boxSize;
+      
+      dummy.position.set(cx, totalH / 2, cz);
+      dummy.scale.set(sX, scaleY, sZ);
       dummy.updateMatrix();
-      voxelInstancedMesh.setMatrixAt(idx, dummy.matrix);
-
-      if (voxelStudInstancedMesh) {
-        const posY_stud = layers * boxHeight + studHeight / 2;
-        studDummy.position.set(posX, posY_stud, posZ);
-        studDummy.scale.set(1.0, 1.0, 1.0); // Never stretched!
-        studDummy.updateMatrix();
-        voxelStudInstancedMesh.setMatrixAt(idx, studDummy.matrix);
-      }
-
-      if (blockLegoSnap.checked) {
-        pixelColor = snapToLegoColor(pixelColor);
-      }
-      voxelInstancedMesh.setColorAt(idx, pixelColor);
-      if (voxelStudInstancedMesh) {
-        voxelStudInstancedMesh.setColorAt(idx, pixelColor);
-      }
-      idx++;
+      voxelInstancedMesh.setMatrixAt(brickIdx, dummy.matrix);
+      voxelInstancedMesh.setColorAt(brickIdx, b.color);
+      brickIdx++;
     }
   }
 
-  voxelInstancedMesh.instanceMatrix.needsUpdate = true;
-  if (voxelInstancedMesh.instanceColor) {
-    voxelInstancedMesh.instanceColor.needsUpdate = true;
+  // Trigger GPU matrix updates
+  if (voxelInstancedMesh && neededBricks > 0) {
+    voxelInstancedMesh.instanceMatrix.needsUpdate = true;
+    if (voxelInstancedMesh.instanceColor) voxelInstancedMesh.instanceColor.needsUpdate = true;
   }
-  if (voxelStudInstancedMesh) {
+  if (voxelPlateInstancedMesh && neededPlates > 0) {
+    voxelPlateInstancedMesh.instanceMatrix.needsUpdate = true;
+    if (voxelPlateInstancedMesh.instanceColor) voxelPlateInstancedMesh.instanceColor.needsUpdate = true;
+  }
+  if (voxelStudInstancedMesh && neededStuds > 0) {
     voxelStudInstancedMesh.instanceMatrix.needsUpdate = true;
-    if (voxelStudInstancedMesh.instanceColor) {
-      voxelStudInstancedMesh.instanceColor.needsUpdate = true;
-    }
+    if (voxelStudInstancedMesh.instanceColor) voxelStudInstancedMesh.instanceColor.needsUpdate = true;
   }
 
-  // Update UI Stats using the mesh geometry directly for 100% accuracy
-  const geom = voxelInstancedMesh.geometry;
-  const verticesPerVoxel = geom.attributes.position.count;
-  const trianglesPerVoxel = geom.index ? (geom.index.count / 3) : (verticesPerVoxel / 3);
+  // Stats calculation
+  const v = (g) => g ? g.attributes.position.count : 0;
+  const t = (g) => g ? (g.index ? (g.index.count / 3) : (v(g) / 3)) : 0;
 
-  let extraVertices = 0;
-  let extraTriangles = 0;
-  if (voxelStudInstancedMesh) {
-    const sGeom = voxelStudInstancedMesh.geometry;
-    extraVertices = sGeom.attributes.position.count;
-    extraTriangles = sGeom.index ? (sGeom.index.count / 3) : (extraVertices / 3);
-  }
+  const brickGeom = voxelInstancedMesh ? voxelInstancedMesh.geometry : null;
+  const plateGeom = voxelPlateInstancedMesh ? voxelPlateInstancedMesh.geometry : null;
+  const studGeom = voxelStudInstancedMesh ? voxelStudInstancedMesh.geometry : null;
 
-  infoMeshes.textContent = 1 + (voxelStudInstancedMesh ? 1 : 0);
-  infoVertices.textContent = formatNumber(gridCount * (verticesPerVoxel + extraVertices));
-  infoTriangles.textContent = formatNumber(gridCount * (trianglesPerVoxel + extraTriangles));
+  let activeMeshes = 0;
+  if (voxelInstancedMesh && voxelInstancedMesh.visible) activeMeshes++;
+  if (voxelPlateInstancedMesh && voxelPlateInstancedMesh.visible) activeMeshes++;
+  if (voxelStudInstancedMesh && voxelStudInstancedMesh.visible) activeMeshes++;
+
+  infoMeshes.textContent = activeMeshes;
+  
+  const totalV = (brickIdx * v(brickGeom)) + (plateIdx * v(plateGeom)) + (studIdx * v(studGeom));
+  const totalT = (brickIdx * t(brickGeom)) + (plateIdx * t(plateGeom)) + (studIdx * t(studGeom));
+
+  infoVertices.textContent = formatNumber(totalV);
+  infoTriangles.textContent = formatNumber(totalT);
 }
 
 // Offscreen canvas helpers
 function sampleOffscreenCanvas() {
   if (!isMediaLoaded || !loadedMediaElement) return;
+  samplingCtx.clearRect(0, 0, samplingCanvas.width, samplingCanvas.height);
   samplingCtx.drawImage(loadedMediaElement, 0, 0, samplingCanvas.width, samplingCanvas.height);
   samplingData = samplingCtx.getImageData(0, 0, samplingCanvas.width, samplingCanvas.height);
 }
@@ -1350,22 +1776,42 @@ function getSampledPixelColor(u, v) {
   const w = samplingCanvas.width;
   const h = samplingCanvas.height;
   
-  // Flip V coordinate to match Canvas coordinate system (Y starts at top)
+  // Image top (canvas py=0) maps to grid row 0 (far side of relief, top of view)
+  // so the image appears right-side-up when looking at the heightmap from the camera.
   const px = Math.max(0, Math.min(w - 1, Math.floor(u * (w - 1))));
-  const py = Math.max(0, Math.min(h - 1, Math.floor((1.0 - v) * (h - 1))));
+  const py = Math.max(0, Math.min(h - 1, Math.floor(v * (h - 1))));
   
   const idx = (py * w + px) * 4;
   
-  const r = samplingData.data[idx] / 255;
-  const g = samplingData.data[idx + 1] / 255;
-  const b = samplingData.data[idx + 2] / 255;
+  const brightnessVal = mediaBrightness ? parseFloat(mediaBrightness.value) : 1.0;
+  
+  const r = Math.max(0.0, Math.min(1.0, (samplingData.data[idx] / 255) * brightnessVal));
+  const g = Math.max(0.0, Math.min(1.0, (samplingData.data[idx + 1] / 255) * brightnessVal));
+  const b = Math.max(0.0, Math.min(1.0, (samplingData.data[idx + 2] / 255) * brightnessVal));
   
   return new THREE.Color(r, g, b);
 }
 
+function getSampledPixelAlpha(u, v) {
+  if (!samplingData) return 1.0;
+  
+  const w = samplingCanvas.width;
+  const h = samplingCanvas.height;
+  
+  const px = Math.max(0, Math.min(w - 1, Math.floor(u * (w - 1))));
+  const py = Math.max(0, Math.min(h - 1, Math.floor(v * (h - 1))));
+  
+  const idx = (py * w + px) * 4;
+  return samplingData.data[idx + 3] / 255;
+}
+
 // Reset camera view angle (FOV 10, distance is high to match zoom factor)
 function resetCameraPosition() {
-  camera.position.set(0, 0, 60);
+  if (mediaMapping && mediaMapping.value === 'heightmap') {
+    camera.position.set(20, 25, 50);
+  } else {
+    camera.position.set(0, 0, 60);
+  }
   camera.lookAt(0, 0, 0);
   if (controls) {
     controls.target.set(0, 0, 0);
@@ -1382,16 +1828,71 @@ function updateSceneBackground() {
     scene.background = new THREE.Color(valColor);
     document.querySelector('.canvas-container').style.background = 'none';
   } else if (type === 'gradient') {
-    bgColorPickerRow.style.display = 'none';
+    bgColorPickerRow.style.display = 'block';
     scene.background = null; // Let renderer clear transparently
-    // Set modern studio radial background via CSS on canvas container
-    document.querySelector('.canvas-container').style.background = 'radial-gradient(circle, #2d2d38 0%, #0d0d12 100%)';
+    // Build a radial gradient derived from the picked color
+    const { h, s, l } = hexToHSL(valColor);
+    const centerL = Math.min(l + 15, 97);
+    const edgeL = Math.max(l - 12, 3);
+    const centerColor = `hsl(${h}, ${s}%, ${centerL}%)`;
+    const edgeColor = `hsl(${h}, ${s}%, ${edgeL}%)`;
+    document.querySelector('.canvas-container').style.background =
+      `radial-gradient(circle, ${centerColor} 0%, ${edgeColor} 100%)`;
   } else {
     // Transparent mode
     bgColorPickerRow.style.display = 'none';
     scene.background = null;
     document.querySelector('.canvas-container').style.background = 'none';
   }
+}
+
+// Convert hex color to HSL values
+function hexToHSL(hex) {
+  let r = parseInt(hex.slice(1, 3), 16) / 255;
+  let g = parseInt(hex.slice(3, 5), 16) / 255;
+  let b = parseInt(hex.slice(5, 7), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+
+  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+// --- Theme Toggle ---
+function toggleTheme() {
+  const root = document.documentElement;
+  const isCurrentlyLight = root.getAttribute('data-theme') === 'light';
+  const newTheme = isCurrentlyLight ? 'dark' : 'light';
+  root.setAttribute('data-theme', newTheme);
+  localStorage.setItem('endless-block-theme', newTheme);
+
+  // Swap background color to a theme-appropriate default
+  const newBgColor = newTheme === 'light' ? '#d8d8e2' : '#1a1a24';
+  sceneBgColor.value = newBgColor;
+  bgColorHex.textContent = newBgColor.toUpperCase();
+
+  // Update the 3D scene background to match the new theme
+  updateSceneBackground();
+}
+
+function loadSavedTheme() {
+  const saved = localStorage.getItem('endless-block-theme');
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+  // else: default dark, no attribute needed
 }
 
 // --- Step 5: Preset Implementation ---
@@ -1703,5 +2204,6 @@ function animate() {
 }
 
 // Start Project
+loadSavedTheme(); // Restore theme before init so CSS variables are ready
 init();
 animate();

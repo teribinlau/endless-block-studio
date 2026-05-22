@@ -39,6 +39,10 @@
             <span class="project-title" id="display-project-name">Project / Strange 19 (Remesh)</span>
           </div>
           <div class="header-right">
+            <button id="btn-theme" class="btn btn-secondary btn-icon-only" title="Toggle Day / Night Mode">
+              <svg class="btn-icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              <svg class="btn-icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
             <button id="btn-reset" class="btn btn-secondary">
               <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
               Reset View
@@ -170,16 +174,22 @@
                 <div class="control-row">
                   <label for="block-shape">Block Shape</label>
                   <select id="block-shape" class="form-select">
-                    <option value="cube">Cubes</option>
                     <option value="lego">Lego Bricks</option>
                     <option value="lego-plate">Lego Plates</option>
+                    <option value="cube">Cubes</option>
                   </select>
                 </div>
 
                 <!-- Snap to Lego Colors -->
                 <div class="control-row checkbox-row">
                   <label for="block-lego-snap">Snap to Lego Colors</label>
-                  <input type="checkbox" id="block-lego-snap" />
+                  <input type="checkbox" id="block-lego-snap" checked />
+                </div>
+
+                <!-- Mix Brick Sizes (random 1x1 / 1x2 / 2x2 / 2x4 packing) -->
+                <div class="control-row checkbox-row">
+                  <label for="block-mix">Mix Brick Sizes</label>
+                  <input type="checkbox" id="block-mix" checked />
                 </div>
 
                 <!-- Block Resolution -->
@@ -188,7 +198,7 @@
                     <label for="block-resolution">Block Density</label>
                     <span id="val-block-resolution">30</span>
                   </div>
-                  <input type="range" id="block-resolution" min="10" max="60" step="1" value="30" />
+                  <input type="range" id="block-resolution" min="10" max="120" step="1" value="30" />
                 </div>
 
                 <!-- Block Gap / Outlines -->
@@ -230,9 +240,9 @@
                 <div class="control-row">
                   <div class="label-with-val">
                     <label for="light-y">Key Light Angle Y</label>
-                    <span id="val-light-y">-10.0</span>
+                    <span id="val-light-y">10.0</span>
                   </div>
-                  <input type="range" id="light-y" min="-20" max="20" step="0.1" value="-10.0" />
+                  <input type="range" id="light-y" min="-20" max="20" step="0.1" value="10.0" />
                 </div>
 
                 <!-- Light Z Angle -->
@@ -248,9 +258,9 @@
                 <div class="control-row">
                   <div class="label-with-val">
                     <label for="hemi-intensity">Sky Light Power</label>
-                    <span id="val-hemi-intensity">0.3</span>
+                    <span id="val-hemi-intensity">0.6</span>
                   </div>
-                  <input type="range" id="hemi-intensity" min="0" max="2" step="0.05" value="0.3" />
+                  <input type="range" id="hemi-intensity" min="0" max="2" step="0.05" value="0.6" />
                 </div>
 
                 <!-- Background Color Type Toggle -->
@@ -258,7 +268,7 @@
                   <label for="scene-bg-type">Background Mode</label>
                   <select id="scene-bg-type" class="form-select">
                     <option value="solid">Solid Color</option>
-                    <option value="gradient">Studio Gradient</option>
+                    <option value="gradient" selected>Studio Gradient</option>
                     <option value="transparent">Transparent</option>
                   </select>
                 </div>
@@ -267,8 +277,8 @@
                 <div class="control-row" id="bg-color-picker-row">
                   <label for="scene-bg-color">Background Color</label>
                   <div class="color-picker-wrapper">
-                    <input type="color" id="scene-bg-color" value="#ffffff" />
-                    <span id="bg-color-hex" class="hex-label">#FFFFFF</span>
+                    <input type="color" id="scene-bg-color" value="#1a1a24" />
+                    <span id="bg-color-hex" class="hex-label">#1A1A24</span>
                   </div>
                 </div>
               </div>
@@ -283,7 +293,7 @@
                 <!-- Auto Rotate Speed -->
                 <div class="control-row checkbox-row">
                   <label for="anim-auto-rotate">Auto Rotate Scene</label>
-                  <input type="checkbox" id="anim-auto-rotate" checked />
+                  <input type="checkbox" id="anim-auto-rotate" />
                 </div>
 
                 <!-- Rotation Speed Slider -->
@@ -369,13 +379,28 @@
                   </select>
                 </div>
 
+                <!-- Image Brightness Slider -->
+                <div class="control-row" id="media-brightness-row" style="display: none; margin-top: 12px; margin-bottom: 0;">
+                  <div class="label-with-val">
+                    <label for="media-brightness">Image Brightness</label>
+                    <span id="val-media-brightness">1.00</span>
+                  </div>
+                  <input type="range" id="media-brightness" min="0.1" max="3.0" step="0.05" value="1.0" />
+                </div>
+
                 <!-- Heightmap Scale Slider -->
                 <div class="control-row" id="media-height-scale-row" style="display: none; margin-top: 12px; margin-bottom: 0;">
                   <div class="label-with-val">
                     <label for="media-height-scale">Heightmap Scale</label>
-                    <span id="val-media-height-scale">1.5</span>
+                    <span id="val-media-height-scale">3.0</span>
                   </div>
-                  <input type="range" id="media-height-scale" min="0.1" max="5.0" step="0.1" value="1.5" />
+                  <input type="range" id="media-height-scale" min="0.1" max="5.0" step="0.1" value="3.0" />
+                </div>
+
+                <!-- Invert Heightmap -->
+                <div class="control-row checkbox-row" id="media-height-invert-row" style="display: none; margin-top: 8px; margin-bottom: 0;">
+                  <label for="media-height-invert">Invert Heightmap</label>
+                  <input type="checkbox" id="media-height-invert" />
                 </div>
               </div>
             </div>
