@@ -2173,13 +2173,13 @@ function captureScreenshot() {
   link.click();
 }
 
-// Helper to convert an InstancedMesh to a merged standard Mesh for GLB compatibility
-function convertInstancedMeshToMesh(instancedMesh) {
+// Helper to convert an InstancedMesh to standard Meshes grouped by color inside a THREE.Group for GLB compatibility
+function convertInstancedMeshToMesh(instancedMesh, baseName = 'voxel') {
   if (!instancedMesh || instancedMesh.count === 0) return null;
 
   const count = instancedMesh.count;
   const baseGeometry = instancedMesh.geometry;
-  const geometries = [];
+  const groupsByColor = {}; // hex -> Array of geometries
 
   const matrix = new THREE.Matrix4();
   const color = new THREE.Color();
@@ -2193,43 +2193,45 @@ function convertInstancedMeshToMesh(instancedMesh) {
       color.setRGB(1, 1, 1);
     }
 
+    const hex = color.getHexString().toUpperCase();
+    if (!groupsByColor[hex]) {
+      groupsByColor[hex] = [];
+    }
+
     const geom = baseGeometry.clone();
     geom.applyMatrix4(matrix);
+    groupsByColor[hex].push(geom);
+  }
 
-    // Apply color as vertex colors
-    const positionCount = geom.attributes.position.count;
-    const colorsArray = new Float32Array(positionCount * 3);
-    for (let j = 0; j < positionCount; j++) {
-      colorsArray[j * 3] = color.r;
-      colorsArray[j * 3 + 1] = color.g;
-      colorsArray[j * 3 + 2] = color.b;
+  const exportGroup = new THREE.Group();
+
+  for (const hex in groupsByColor) {
+    const geometries = groupsByColor[hex];
+    let mergedGeom = null;
+    try {
+      mergedGeom = BufferGeometryUtils.mergeGeometries(geometries, false);
+    } catch (e) {
+      console.error(`Failed to merge geometries for color ${hex}:`, e);
+      geometries.forEach(g => g.dispose());
+      continue;
     }
-    geom.setAttribute('color', new THREE.Float32BufferAttribute(colorsArray, 3));
-    
-    geometries.push(geom);
-  }
 
-  // Merge all geometries
-  let mergedGeom = null;
-  try {
-    mergedGeom = BufferGeometryUtils.mergeGeometries(geometries, false);
-  } catch (e) {
-    console.error('Failed to merge geometries:', e);
+    // Clean up individual geometries in this group
     geometries.forEach(g => g.dispose());
-    return null;
+
+    if (!mergedGeom) continue;
+
+    // Create material clone for this color
+    const material = instancedMesh.material.clone();
+    material.color.set('#' + hex);
+    material.vertexColors = false; // Disable vertex colors since we set color on the material directly
+
+    const colorMesh = new THREE.Mesh(mergedGeom, material);
+    colorMesh.name = `${baseName}_${hex}`;
+    exportGroup.add(colorMesh);
   }
 
-  // Clean up individual geometries
-  geometries.forEach(g => g.dispose());
-
-  if (!mergedGeom) return null;
-
-  // Create material clone and enable vertexColors
-  const material = instancedMesh.material.clone();
-  material.vertexColors = true;
-
-  const mergedMesh = new THREE.Mesh(mergedGeom, material);
-  return mergedMesh;
+  return exportGroup;
 }
 
 // Export Scene to GLB File format
@@ -2251,7 +2253,7 @@ function exportToGLB() {
 
   const addMergedVoxelMesh = (instancedMesh, name) => {
     if (instancedMesh && instancedMesh.count > 0 && instancedMesh.visible) {
-      const mergedMesh = convertInstancedMeshToMesh(instancedMesh);
+      const mergedMesh = convertInstancedMeshToMesh(instancedMesh, name);
       if (mergedMesh) {
         mergedMesh.name = name;
         exportGroup.add(mergedMesh);
@@ -2262,7 +2264,7 @@ function exportToGLB() {
 
   const addMergedVoxelMeshToGroup = (instancedMesh, name, parentGroup) => {
     if (instancedMesh && instancedMesh.count > 0 && instancedMesh.visible) {
-      const mergedMesh = convertInstancedMeshToMesh(instancedMesh);
+      const mergedMesh = convertInstancedMeshToMesh(instancedMesh, name);
       if (mergedMesh) {
         mergedMesh.name = name;
         parentGroup.add(mergedMesh);
