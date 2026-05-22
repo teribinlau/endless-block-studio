@@ -598,9 +598,16 @@ function snapToLegoColor(color) {
   return closestColor;
 }
 
+let voxelizeTimeout = null;
+
 // --- Voxelization (Block Effect) Implementation ---
 function updateBlockEffect() {
   if (!currentModel) return;
+
+  if (voxelizeTimeout) {
+    clearTimeout(voxelizeTimeout);
+    voxelizeTimeout = null;
+  }
 
   // 1. Clear existing voxel mesh if any
   clearInstancedMesh(voxelInstancedMesh);
@@ -618,7 +625,7 @@ function updateBlockEffect() {
   // 2. Toggle original mesh visibility based on block mode status
   const active = blockMode.checked;
   currentModel.traverse((child) => {
-    if (child.isMesh && child !== voxelInstancedMesh && child !== voxelPlateInstancedMesh && child !== voxelStudInstancedMesh) {
+    if (child.isMesh && !child.isInstancedMesh) {
       child.visible = !active;
     }
   });
@@ -631,7 +638,8 @@ function updateBlockEffect() {
     currentModel.updateMatrixWorld(true);
 
     // Run in timeout to prevent UI freezing
-    setTimeout(() => {
+    voxelizeTimeout = setTimeout(() => {
+      voxelizeTimeout = null;
       const resolution = parseInt(blockResolution.value);
       const gapPercent = parseFloat(blockGap.value) / 100.0;
       
@@ -779,7 +787,7 @@ function voxelizeMesh(model, resolution) {
   // Compute local bounding box of child meshes
   const box = new THREE.Box3();
   model.traverse((child) => {
-    if (child.isMesh && child !== voxelInstancedMesh) {
+    if (child.isMesh && !child.isInstancedMesh) {
       const geom = child.geometry;
       if (geom) {
         const localMatrix = new THREE.Matrix4();
@@ -826,7 +834,7 @@ function voxelizeMesh(model, resolution) {
   };
 
   model.traverse((child) => {
-    if (child.isMesh && child !== voxelInstancedMesh && child.geometry) {
+    if (child.isMesh && !child.isInstancedMesh && child.geometry) {
       const geom = child.geometry;
       const posAttr = geom.attributes.position;
       const uvAttr = geom.attributes.uv;
@@ -1395,7 +1403,7 @@ function applyMediaMapping() {
       studCapacity = 0;
       if (currentModel) {
         currentModel.traverse(c => {
-          if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) c.visible = true;
+          if (c.isMesh && !c.isInstancedMesh) c.visible = true;
         });
       }
     }
@@ -1418,7 +1426,7 @@ function applyMediaMapping() {
     // Hide heightmap voxel mesh if active, restore model visibility
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) {
+        if (c.isMesh && !c.isInstancedMesh) {
           c.visible = !blockMode.checked;
         }
       });
@@ -1434,7 +1442,7 @@ function applyMediaMapping() {
     // Restore model visibility
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) {
+        if (c.isMesh && !c.isInstancedMesh) {
           c.visible = !blockMode.checked;
         }
       });
@@ -1448,7 +1456,7 @@ function applyMediaMapping() {
     // Hide original meshes completely
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) c.visible = false;
+        if (c.isMesh && !c.isInstancedMesh) c.visible = false;
       });
     }
     updateBlockHeightmap();
@@ -1458,7 +1466,7 @@ function applyMediaMapping() {
     mediaBrightnessRow.style.display = 'none';
     if (currentModel) {
       currentModel.traverse(c => {
-        if (c.isMesh && c !== voxelInstancedMesh && c !== voxelPlateInstancedMesh && c !== voxelStudInstancedMesh) {
+        if (c.isMesh && !c.isInstancedMesh) {
           c.visible = !blockMode.checked;
         }
       });
@@ -2265,7 +2273,9 @@ function exportToGLB() {
 
   if (isHeightmapMode) {
     // Heightmap mode: export voxelInstancedMesh, voxelPlateInstancedMesh, and voxelStudInstancedMesh
-    addMergedVoxelMesh(voxelInstancedMesh, "voxel_bricks");
+    const shape = blockShape.value;
+    const baseName = (shape === 'cube') ? "voxel_cubes" : "voxel_bricks";
+    addMergedVoxelMesh(voxelInstancedMesh, baseName);
     addMergedVoxelMesh(voxelPlateInstancedMesh, "voxel_plates");
     addMergedVoxelMesh(voxelStudInstancedMesh, "voxel_studs");
   } else if (isVoxelizedMode) {
@@ -2434,30 +2444,32 @@ function animate() {
       mediaPreviewCtx.drawImage(loadedMediaElement, 0, 0, 60, 60);
 
       // 2. Update real-time voxels
-      if (blockMode.checked && voxelInstancedMesh) {
+      if (blockMode.checked) {
         if (mediaMapping.value === 'model') {
-          sampleOffscreenCanvas();
-          
-          if (voxelKeys && voxelKeys.length > 0) {
-            for (let i = 0; i < voxelKeys.length; i++) {
-              const key = voxelKeys[i];
-              const uv = voxelUVMap.get(key);
-              if (uv) {
-                let colorToUse = getSampledPixelColor(uv.x, uv.y);
-                if (blockLegoSnap.checked) {
-                  colorToUse = snapToLegoColor(colorToUse);
-                }
-                voxelInstancedMesh.setColorAt(i, colorToUse);
-                if (voxelStudInstancedMesh) {
-                  voxelStudInstancedMesh.setColorAt(i, colorToUse);
+          if (voxelInstancedMesh) {
+            sampleOffscreenCanvas();
+            
+            if (voxelKeys && voxelKeys.length > 0) {
+              for (let i = 0; i < voxelKeys.length; i++) {
+                const key = voxelKeys[i];
+                const uv = voxelUVMap.get(key);
+                if (uv) {
+                  let colorToUse = getSampledPixelColor(uv.x, uv.y);
+                  if (blockLegoSnap.checked) {
+                    colorToUse = snapToLegoColor(colorToUse);
+                  }
+                  voxelInstancedMesh.setColorAt(i, colorToUse);
+                  if (voxelStudInstancedMesh) {
+                    voxelStudInstancedMesh.setColorAt(i, colorToUse);
+                  }
                 }
               }
-            }
-            if (voxelInstancedMesh.instanceColor) {
-              voxelInstancedMesh.instanceColor.needsUpdate = true;
-            }
-            if (voxelStudInstancedMesh && voxelStudInstancedMesh.instanceColor) {
-              voxelStudInstancedMesh.instanceColor.needsUpdate = true;
+              if (voxelInstancedMesh.instanceColor) {
+                voxelInstancedMesh.instanceColor.needsUpdate = true;
+              }
+              if (voxelStudInstancedMesh && voxelStudInstancedMesh.instanceColor) {
+                voxelStudInstancedMesh.instanceColor.needsUpdate = true;
+              }
             }
           }
         } else if (mediaMapping.value === 'heightmap') {
