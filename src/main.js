@@ -444,9 +444,15 @@ function setupModelInScene(object) {
   scene.add(currentModel);
 
   // Clear any existing instanced mesh reference since we loaded a new model
+  clearInstancedMesh(voxelInstancedMesh);
   voxelInstancedMesh = null;
+  brickCapacity = 0;
+  clearInstancedMesh(voxelPlateInstancedMesh);
   voxelPlateInstancedMesh = null;
+  plateCapacity = 0;
+  clearInstancedMesh(voxelStudInstancedMesh);
   voxelStudInstancedMesh = null;
+  studCapacity = 0;
 
   // Initialize stats
   modelStats = { meshes: 0, vertices: 0, triangles: 0 };
@@ -515,6 +521,24 @@ function formatNumber(num) {
   return num;
 }
 
+// Helper to safely clear and dispose an InstancedMesh
+function clearInstancedMesh(mesh) {
+  if (mesh) {
+    if (mesh.parent) {
+      mesh.parent.remove(mesh);
+    }
+    scene.remove(mesh);
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) {
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach(mat => mat.dispose());
+      } else {
+        mesh.material.dispose();
+      }
+    }
+  }
+}
+
 // --- LEGO Brick Geometry Helpers ---
 // No longer needs a merged geometry since box base and studs are rendered as separate InstancedMeshes
 // to prevent vertical stretching of studs in heightmap mode.
@@ -579,30 +603,17 @@ function updateBlockEffect() {
   if (!currentModel) return;
 
   // 1. Clear existing voxel mesh if any
-  if (voxelInstancedMesh) {
-    currentModel.remove(voxelInstancedMesh);
-    scene.remove(voxelInstancedMesh);
-    if (voxelInstancedMesh.geometry) voxelInstancedMesh.geometry.dispose();
-    if (voxelInstancedMesh.material) voxelInstancedMesh.material.dispose();
-    voxelInstancedMesh = null;
-    brickCapacity = 0;
-  }
-  if (voxelStudInstancedMesh) {
-    currentModel.remove(voxelStudInstancedMesh);
-    scene.remove(voxelStudInstancedMesh);
-    if (voxelStudInstancedMesh.geometry) voxelStudInstancedMesh.geometry.dispose();
-    if (voxelStudInstancedMesh.material) voxelStudInstancedMesh.material.dispose();
-    voxelStudInstancedMesh = null;
-    studCapacity = 0;
-  }
-  if (voxelPlateInstancedMesh) {
-    currentModel.remove(voxelPlateInstancedMesh);
-    scene.remove(voxelPlateInstancedMesh);
-    if (voxelPlateInstancedMesh.geometry) voxelPlateInstancedMesh.geometry.dispose();
-    if (voxelPlateInstancedMesh.material) voxelPlateInstancedMesh.material.dispose();
-    voxelPlateInstancedMesh = null;
-    plateCapacity = 0;
-  }
+  clearInstancedMesh(voxelInstancedMesh);
+  voxelInstancedMesh = null;
+  brickCapacity = 0;
+
+  clearInstancedMesh(voxelStudInstancedMesh);
+  voxelStudInstancedMesh = null;
+  studCapacity = 0;
+
+  clearInstancedMesh(voxelPlateInstancedMesh);
+  voxelPlateInstancedMesh = null;
+  plateCapacity = 0;
 
   // 2. Toggle original mesh visibility based on block mode status
   const active = blockMode.checked;
@@ -795,6 +806,7 @@ function voxelizeMesh(model, resolution) {
   const shape = blockShape.value;
   const heightFactor = (shape === 'lego') ? 1.2 : (shape === 'lego-plate' ? 0.4 : 1.0);
   const voxelSizeY = voxelSize * heightFactor;
+  const sampleStep = Math.min(voxelSize, voxelSizeY);
 
   const tempV1 = new THREE.Vector3();
   const tempV2 = new THREE.Vector3();
@@ -850,7 +862,7 @@ function voxelizeMesh(model, resolution) {
           getUV(idx2, tempUV2);
           getUV(idx3, tempUV3);
           
-          sampleTriangle(tempV1, tempV2, tempV3, tempUV1, tempUV2, tempUV3, voxelSize, addVoxel);
+          sampleTriangle(tempV1, tempV2, tempV3, tempUV1, tempUV2, tempUV3, sampleStep, addVoxel);
         }
       } else {
         for (let i = 0; i < posAttr.count; i += 3) {
@@ -862,7 +874,7 @@ function voxelizeMesh(model, resolution) {
           getUV(i + 1, tempUV2);
           getUV(i + 2, tempUV3);
           
-          sampleTriangle(tempV1, tempV2, tempV3, tempUV1, tempUV2, tempUV3, voxelSize, addVoxel);
+          sampleTriangle(tempV1, tempV2, tempV3, tempUV1, tempUV2, tempUV3, sampleStep, addVoxel);
         }
       }
     }
@@ -1370,26 +1382,16 @@ function applyMediaMapping() {
 
   if (!isMediaLoaded || !loadedMediaTexture) {
     if (mediaMapping.value === 'heightmap') {
-      if (voxelInstancedMesh) {
-        scene.remove(voxelInstancedMesh);
-        if (voxelInstancedMesh.geometry) voxelInstancedMesh.geometry.dispose();
-        if (voxelInstancedMesh.material) voxelInstancedMesh.material.dispose();
-        voxelInstancedMesh = null;
-      }
+      clearInstancedMesh(voxelInstancedMesh);
+      voxelInstancedMesh = null;
       brickCapacity = 0;
-      if (voxelPlateInstancedMesh) {
-        scene.remove(voxelPlateInstancedMesh);
-        if (voxelPlateInstancedMesh.geometry) voxelPlateInstancedMesh.geometry.dispose();
-        if (voxelPlateInstancedMesh.material) voxelPlateInstancedMesh.material.dispose();
-        voxelPlateInstancedMesh = null;
-      }
+
+      clearInstancedMesh(voxelPlateInstancedMesh);
+      voxelPlateInstancedMesh = null;
       plateCapacity = 0;
-      if (voxelStudInstancedMesh) {
-        scene.remove(voxelStudInstancedMesh);
-        if (voxelStudInstancedMesh.geometry) voxelStudInstancedMesh.geometry.dispose();
-        if (voxelStudInstancedMesh.material) voxelStudInstancedMesh.material.dispose();
-        voxelStudInstancedMesh = null;
-      }
+
+      clearInstancedMesh(voxelStudInstancedMesh);
+      voxelStudInstancedMesh = null;
       studCapacity = 0;
       if (currentModel) {
         currentModel.traverse(c => {
@@ -1616,11 +1618,7 @@ function updateBlockHeightmap() {
       brickCapacity < neededBricks;
 
     if (needsRecreate) {
-      if (voxelInstancedMesh) {
-        scene.remove(voxelInstancedMesh);
-        if (voxelInstancedMesh.geometry) voxelInstancedMesh.geometry.dispose();
-        if (voxelInstancedMesh.material) voxelInstancedMesh.material.dispose();
-      }
+      clearInstancedMesh(voxelInstancedMesh);
       brickCapacity = Math.max(512, Math.round(neededBricks * 1.2));
       const voxelGeom = new THREE.BoxGeometry(boxSize, brickGeomHeight, boxSize);
       const voxelMat = physicalMaterial.clone();
@@ -1656,11 +1654,7 @@ function updateBlockHeightmap() {
       plateCapacity < neededPlates;
 
     if (needsRecreate) {
-      if (voxelPlateInstancedMesh) {
-        scene.remove(voxelPlateInstancedMesh);
-        if (voxelPlateInstancedMesh.geometry) voxelPlateInstancedMesh.geometry.dispose();
-        if (voxelPlateInstancedMesh.material) voxelPlateInstancedMesh.material.dispose();
-      }
+      clearInstancedMesh(voxelPlateInstancedMesh);
       plateCapacity = Math.max(512, Math.round(neededPlates * 1.2));
       const plateGeom = new THREE.BoxGeometry(boxSize, plateH, boxSize);
       const plateMat = physicalMaterial.clone();
@@ -1696,11 +1690,7 @@ function updateBlockHeightmap() {
       studCapacity < neededStuds;
 
     if (needsRecreate) {
-      if (voxelStudInstancedMesh) {
-        scene.remove(voxelStudInstancedMesh);
-        if (voxelStudInstancedMesh.geometry) voxelStudInstancedMesh.geometry.dispose();
-        if (voxelStudInstancedMesh.material) voxelStudInstancedMesh.material.dispose();
-      }
+      clearInstancedMesh(voxelStudInstancedMesh);
       studCapacity = Math.max(512, Math.round(neededStuds * 1.2));
       const studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
       const studMat = physicalMaterial.clone();
@@ -2291,7 +2281,10 @@ function exportToGLB() {
       modelGroup.updateMatrix();
     }
     
-    addMergedVoxelMeshToGroup(voxelInstancedMesh, "voxel_bricks", modelGroup);
+    const shape = blockShape.value;
+    const baseName = (shape === 'lego-plate') ? "voxel_plates" : ((shape === 'cube') ? "voxel_cubes" : "voxel_bricks");
+    
+    addMergedVoxelMeshToGroup(voxelInstancedMesh, baseName, modelGroup);
     addMergedVoxelMeshToGroup(voxelStudInstancedMesh, "voxel_studs", modelGroup);
     
     exportGroup.add(modelGroup);
