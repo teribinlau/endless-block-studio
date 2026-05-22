@@ -24,6 +24,11 @@
       <!-- Main Canvas Container -->
       <div class="canvas-container">
         <canvas id="webgl"></canvas>
+        <canvas id="canvas-2d" class="canvas-2d" style="display: none;"></canvas>
+        <div id="canvas-2d-empty" class="canvas-2d-empty" style="display: none;">
+          <div class="empty-icon">2D</div>
+          <p>Upload an image or video to apply the Lego filter</p>
+        </div>
       </div>
 
       <!-- UI Overlay -->
@@ -36,6 +41,10 @@
             <span class="badge">PRO</span>
           </div>
           <div class="header-center">
+            <div class="view-mode-toggle" role="tablist" aria-label="View Mode">
+              <button id="btn-mode-3d" class="mode-btn active" data-mode="3d" role="tab" aria-selected="true">3D</button>
+              <button id="btn-mode-2d" class="mode-btn" data-mode="2d" role="tab" aria-selected="false">2D</button>
+            </div>
             <span class="project-title" id="display-project-name">Project / Strange 19 (Remesh)</span>
           </div>
           <div class="header-right">
@@ -181,7 +190,6 @@
                     <option value="lego">Lego Bricks</option>
                     <option value="lego-plate">Lego Plates</option>
                     <option value="cube">Cubes</option>
-                    <option value="flat">Flat 2D</option>
                   </select>
                 </div>
 

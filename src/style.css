@@ -243,6 +243,12 @@ body {
 }
 
 .header-center {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-center .project-title {
   font-family: var(--font-code);
   font-size: 0.85rem;
   color: var(--text-muted);
@@ -250,6 +256,75 @@ body {
   padding: 6px 16px;
   border-radius: 20px;
   border: 1px solid var(--sidebar-border);
+}
+
+/* 2D / 3D view-mode toggle (segmented pill) */
+.view-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--input-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.view-mode-toggle .mode-btn {
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 4px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+
+.view-mode-toggle .mode-btn:hover {
+  color: var(--text-main);
+}
+
+.view-mode-toggle .mode-btn.active {
+  background: var(--accent-color);
+  color: var(--bg-color);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* 2D filter canvas — overlays the WebGL canvas when 2D mode is active */
+.canvas-2d {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: var(--bg-color);
+}
+
+.canvas-2d-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 0.85rem;
+  pointer-events: none;
+  background: var(--bg-color);
+}
+
+.canvas-2d-empty .empty-icon {
+  font-family: var(--font-code);
+  font-size: 2.2rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--accent-color);
+  opacity: 0.55;
 }
 
 /* Sidebar styling */

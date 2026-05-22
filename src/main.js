@@ -33,10 +33,19 @@ let samplingData = null; // Cached ImageData for fast CPU pixel reads
 let isMediaLoaded = false;
 let activeBackgroundType = 'gradient'; // Tracks normal BG mode to restore it
 
+// 2D Filter Mode State
+let viewMode = '3d'; // '3d' (Three.js scene) | '2d' (Lego filter on 2D canvas)
+let last2DRenderTime = 0; // throttling timestamp for video frames in 2D mode
+
 // UI Elements
 const loadingOverlay = document.getElementById('loading-overlay');
 const loaderProgress = document.getElementById('loader-progress');
 const webglCanvas = document.getElementById('webgl');
+const canvas2D = document.getElementById('canvas-2d');
+const ctx2D = canvas2D.getContext('2d');
+const canvas2DEmpty = document.getElementById('canvas-2d-empty');
+const btnMode3D = document.getElementById('btn-mode-3d');
+const btnMode2D = document.getElementById('btn-mode-2d');
 
 // Material Inputs
 const materialPreset = document.getElementById('material-preset');
@@ -657,7 +666,7 @@ function updateBlockEffect() {
         let studGeom = null;
         const studRadius = boxWidth * 0.3;
         const studHeight = boxWidth * 0.2;
-        if (shape === 'lego' || shape === 'lego-plate' || shape === 'flat') {
+        if (shape === 'lego' || shape === 'lego-plate') {
           studGeom = new THREE.CylinderGeometry(studRadius, studRadius, studHeight, 16);
         }
         
@@ -812,7 +821,7 @@ function voxelizeMesh(model, resolution) {
   const voxelSize = maxDim / resolution;
 
   const shape = blockShape.value;
-  const heightFactor = (shape === 'lego' || shape === 'flat') ? 1.2 : (shape === 'lego-plate') ? 0.4 : 1.0;
+  const heightFactor = (shape === 'lego') ? 1.2 : (shape === 'lego-plate' ? 0.4 : 1.0);
   const voxelSizeY = voxelSize * heightFactor;
   const sampleStep = Math.min(voxelSize, voxelSizeY);
 
@@ -923,7 +932,11 @@ function sampleTriangle(v1, v2, v3, uv1, uv2, uv3, step, callback) {
 
 // --- Step 4: UI Listeners and Real-Time Modifiers ---
 function setupUIEventListeners() {
-  
+
+  // 0. 2D / 3D View-Mode toggle (top-center pill)
+  btnMode3D.addEventListener('click', () => setViewMode('3d'));
+  btnMode2D.addEventListener('click', () => setViewMode('2d'));
+
   // 1. Material Inputs
   materialPreset.addEventListener('change', (e) => {
     applyMaterialPreset(e.target.value);
@@ -1088,13 +1101,6 @@ function setupUIEventListeners() {
   });
 
   blockShape.addEventListener('change', () => {
-    // Flat 2D looks much more like real Lego assembly when bricks of varied
-    // sizes are used — auto-enable Mix Bricks (which also forces Lego Snap).
-    if (blockShape.value === 'flat' && !blockMix.checked) {
-      blockMix.checked = true;
-      blockLegoSnap.checked = true;
-      blockLegoSnap.disabled = true;
-    }
     triggerBlockUpdate();
   });
 
@@ -1197,6 +1203,12 @@ function setupUIEventListeners() {
 
 // Helper to trigger correct block updates depending on mapping mode
 function triggerBlockUpdate() {
+  // In 2D filter mode, all "block" controls map to the 2D Lego canvas instead
+  // of the Three.js voxel grid — short-circuit here.
+  if (viewMode === '2d') {
+    render2D();
+    return;
+  }
   if (isMediaLoaded && mediaMapping.value === 'heightmap') {
     updateBlockHeightmap();
   } else {
@@ -1480,6 +1492,9 @@ function applyMediaMapping() {
     }
     updateBlockEffect();
   }
+
+  // 2D filter mode mirrors any media change immediately.
+  if (viewMode === '2d') render2D();
 }
 
 // Generates a 3D heightmap voxel grid from the uploaded media
@@ -1531,13 +1546,9 @@ function updateBlockHeightmap() {
       
       let layers = 0;
       if (alpha >= 0.1) {
-        if (shape === 'flat') {
-          layers = 1;  // flat 2D: all cells are one plate thick — no height variation
-        } else {
-          const brightness = 0.299 * px.r + 0.587 * px.g + 0.114 * px.b;
-          const h = invertHeight ? (1 - brightness) : brightness;
-          layers = Math.max(1, Math.round(h * heightScale));
-        }
+        const brightness = 0.299 * px.r + 0.587 * px.g + 0.114 * px.b;
+        const h = invertHeight ? (1 - brightness) : brightness;
+        layers = Math.max(1, Math.round(h * heightScale));
       }
 
       let display = px;
@@ -1618,9 +1629,6 @@ function updateBlockHeightmap() {
     } else if (shape === 'lego-plate') {
       neededPlates += b.layers;   // each layer = 1 plate (plateH tall)
       neededStuds  += b.w * b.d;
-    } else if (shape === 'flat') {
-      neededBricks += 1;          // one full brick per cell (brickH tall)
-      neededStuds  += b.w * b.d;
     } else if (shape === 'cube') {
       neededBricks += 1;
     }
@@ -1628,7 +1636,7 @@ function updateBlockHeightmap() {
 
   // Dynamically manage / pool InstancedMesh for bricks
   if (neededBricks > 0) {
-    const brickGeomHeight = (shape === 'lego' || shape === 'flat') ? brickH : boxSize;
+    const brickGeomHeight = (shape === 'lego') ? brickH : boxSize;
     const needsRecreate = !voxelInstancedMesh || 
       !voxelInstancedMesh.userData.isHeightmap ||
       voxelInstancedMesh.userData.shape !== shape ||
@@ -1800,30 +1808,6 @@ function updateBlockHeightmap() {
           studIdx++;
         }
       }
-    } else if (shape === 'flat') {
-      // Flat 2D: a single brick-thick layer (no heightmap depth)
-      const py = brickH / 2;
-      dummy.position.set(cx, py, cz);
-      dummy.scale.set(sX, 1, sZ);
-      dummy.updateMatrix();
-      voxelInstancedMesh.setMatrixAt(brickIdx, dummy.matrix);
-      voxelInstancedMesh.setColorAt(brickIdx, b.color);
-      brickIdx++;
-
-      // Studs on top of the brick
-      const stackTop = brickH;
-      for (let dr = 0; dr < b.d; dr++) {
-        for (let dc = 0; dc < b.w; dc++) {
-          const sx = (b.c + dc - cols / 2 + 0.5) * voxelSize;
-          const sz = (b.r + dr - rows / 2 + 0.5) * voxelSize;
-          studDummy.position.set(sx, stackTop + studHeight / 2, sz);
-          studDummy.scale.set(1, 1, 1);
-          studDummy.updateMatrix();
-          voxelStudInstancedMesh.setMatrixAt(studIdx, studDummy.matrix);
-          voxelStudInstancedMesh.setColorAt(studIdx, b.color);
-          studIdx++;
-        }
-      }
     } else if (shape === 'cube') {
       // Single box/cube per stack
       const totalH = b.layers * voxelSize;
@@ -1906,15 +1890,155 @@ function getSampledPixelColor(u, v) {
 
 function getSampledPixelAlpha(u, v) {
   if (!samplingData) return 1.0;
-  
+
   const w = samplingCanvas.width;
   const h = samplingCanvas.height;
-  
+
   const px = Math.max(0, Math.min(w - 1, Math.floor(u * (w - 1))));
   const py = Math.max(0, Math.min(h - 1, Math.floor(v * (h - 1))));
-  
+
   const idx = (py * w + px) * 4;
   return samplingData.data[idx + 3] / 255;
+}
+
+/* ===========================================================================
+   2D LEGO FILTER MODE
+   ---------------------------------------------------------------------------
+   A purely 2D canvas pipeline: takes the loaded image/video and renders it as
+   a flat Lego mosaic — every cell is a single 1×1 brick snapped to the Lego
+   palette, drawn with a stud on top. Independent of Three.js — no scene,
+   no camera, no Mix Bricks. Only two controls matter here:
+     • Block Density slider  →  brick size (lower = bigger bricks)
+     • Image Brightness      →  per-channel multiplier (via getSampledPixelColor)
+   =========================================================================== */
+
+function resize2DCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas2D.clientWidth;
+  const h = canvas2D.clientHeight;
+  canvas2D.width  = Math.round(w * dpr);
+  canvas2D.height = Math.round(h * dpr);
+  ctx2D.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function render2D() {
+  if (viewMode !== '2d') return;
+
+  const w = canvas2D.clientWidth;
+  const h = canvas2D.clientHeight;
+
+  // Background fill (matches CSS bg)
+  const bgStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim() || '#08080a';
+  ctx2D.fillStyle = bgStyle;
+  ctx2D.fillRect(0, 0, w, h);
+
+  if (!isMediaLoaded || !loadedMediaElement) {
+    canvas2DEmpty.style.display = 'flex';
+    return;
+  }
+  canvas2DEmpty.style.display = 'none';
+
+  // Refresh pixel buffer from current image / video frame
+  sampleOffscreenCanvas();
+  if (!samplingData) return;
+
+  // Compute tile grid based on Block Density and media aspect
+  const resolution = parseInt(blockResolution.value);
+  let cols, rows;
+  if (mediaAspect >= 1.0) {
+    cols = resolution;
+    rows = Math.max(1, Math.round(resolution / mediaAspect));
+  } else {
+    cols = Math.max(1, Math.round(resolution * mediaAspect));
+    rows = resolution;
+  }
+
+  // Fit the grid inside the viewport with breathing room
+  const margin = 32;
+  const availW = w - 2 * margin;
+  const availH = h - 2 * margin;
+  const tileSize = Math.max(2, Math.floor(Math.min(availW / cols, availH / rows)));
+  const gridW = tileSize * cols;
+  const gridH = tileSize * rows;
+  const offsetX = Math.round((w - gridW) / 2);
+  const offsetY = Math.round((h - gridH) / 2);
+
+  // Inter-brick gap: same idea as the 3D mode, but in 2D pixels
+  const gapPercent = parseFloat(blockGap.value) / 100.0;
+  const gapPx = Math.max(0, Math.round(tileSize * gapPercent));
+  const innerSize = tileSize - gapPx;
+
+  // Stud geometry
+  const studR = innerSize * 0.28;
+  const useSnap = blockLegoSnap.checked; // optional; defaults checked
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const u = c / (cols - 1 || 1);
+      const v = r / (rows - 1 || 1);
+      const a = getSampledPixelAlpha(u, v);
+      if (a < 0.1) continue;
+
+      let col = getSampledPixelColor(u, v);
+      if (useSnap) col = snapToLegoColor(col);
+
+      const R = Math.round(col.r * 255);
+      const G = Math.round(col.g * 255);
+      const B = Math.round(col.b * 255);
+
+      const x = offsetX + c * tileSize;
+      const y = offsetY + r * tileSize;
+
+      // Brick body
+      ctx2D.fillStyle = `rgb(${R},${G},${B})`;
+      ctx2D.fillRect(x, y, innerSize, innerSize);
+
+      // Stud body (slightly darker than brick)
+      const dR = Math.round(R * 0.85);
+      const dG = Math.round(G * 0.85);
+      const dB = Math.round(B * 0.85);
+      ctx2D.fillStyle = `rgb(${dR},${dG},${dB})`;
+      const cxp = x + innerSize / 2;
+      const cyp = y + innerSize / 2;
+      ctx2D.beginPath();
+      ctx2D.arc(cxp, cyp, studR, 0, Math.PI * 2);
+      ctx2D.fill();
+
+      // Stud highlight (specular kiss, top-left)
+      const hR = Math.min(255, Math.round(R * 1.25));
+      const hG = Math.min(255, Math.round(G * 1.25));
+      const hB = Math.min(255, Math.round(B * 1.25));
+      ctx2D.fillStyle = `rgba(${hR},${hG},${hB},0.55)`;
+      ctx2D.beginPath();
+      ctx2D.arc(cxp - studR * 0.35, cyp - studR * 0.35, studR * 0.45, 0, Math.PI * 2);
+      ctx2D.fill();
+    }
+  }
+}
+
+function setViewMode(mode) {
+  if (mode !== '2d' && mode !== '3d') return;
+  if (viewMode === mode) return;
+  viewMode = mode;
+
+  // Toggle pill buttons
+  btnMode3D.classList.toggle('active', mode === '3d');
+  btnMode2D.classList.toggle('active', mode === '2d');
+  btnMode3D.setAttribute('aria-selected', mode === '3d' ? 'true' : 'false');
+  btnMode2D.setAttribute('aria-selected', mode === '2d' ? 'true' : 'false');
+
+  if (mode === '2d') {
+    webglCanvas.style.display = 'none';
+    canvas2D.style.display = 'block';
+    resize2DCanvas();
+    render2D();
+  } else {
+    canvas2D.style.display = 'none';
+    canvas2DEmpty.style.display = 'none';
+    webglCanvas.style.display = 'block';
+    // Force a 3D resize so the canvas regrows after being hidden
+    onWindowResize();
+  }
 }
 
 // Reset camera view angle (FOV 10, distance is high to match zoom factor)
@@ -2446,11 +2570,33 @@ function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  // Also keep the 2D filter canvas in sync — even when hidden, so a future
+  // switch to 2D mode renders at the right resolution immediately.
+  resize2DCanvas();
+  if (viewMode === '2d') render2D();
 }
 
 // --- Animation Loop ---
 function animate() {
   requestAnimationFrame(animate);
+
+  // ----- 2D filter mode: bypass the entire Three.js pipeline -----
+  if (viewMode === '2d') {
+    // For video, re-render at ~30fps. Static images draw once on mode/slider
+    // changes — no need to redraw every frame.
+    if (isMediaLoaded && loadedMediaType === 'video' && !loadedMediaElement.paused) {
+      const now = performance.now();
+      if (now - last2DRenderTime > 33) {
+        // Keep sidebar preview alive
+        mediaPreviewCanvas.width = 60;
+        mediaPreviewCanvas.height = 60;
+        mediaPreviewCtx.drawImage(loadedMediaElement, 0, 0, 60, 60);
+        render2D();
+        last2DRenderTime = now;
+      }
+    }
+    return;
+  }
 
   // Update controls
   controls.update();
