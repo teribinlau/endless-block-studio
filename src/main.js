@@ -130,6 +130,16 @@ const btnReset = document.getElementById('btn-reset');
 const btnTheme = document.getElementById('btn-theme');
 const btnScreenshot = document.getElementById('btn-screenshot');
 const btnExportGlb = document.getElementById('btn-export-glb');
+
+// Video export controls (visible only when a video is loaded)
+const videoExportRow      = document.getElementById('video-export-row');
+const videoExportFormat   = document.getElementById('video-export-format');
+const btnExportVideo      = document.getElementById('btn-export-video');
+const videoExportBtnLabel = document.getElementById('video-export-btn-label');
+const videoExportProgress = document.getElementById('video-export-progress');
+const videoExportBarFill  = document.getElementById('video-export-bar-fill');
+const videoExportProgressText = document.getElementById('video-export-progress-text');
+let isExportingVideo = false;
 const modelUpload = document.getElementById('model-upload');
 const uploadZone = document.getElementById('upload-zone');
 const presetCards = document.querySelectorAll('.preset-card');
@@ -937,6 +947,9 @@ function setupUIEventListeners() {
   btnMode3D.addEventListener('click', () => setViewMode('3d'));
   btnMode2D.addEventListener('click', () => setViewMode('2d'));
 
+  // 0b. Video export — captures one full loop of the active video as WebM / MP4
+  btnExportVideo.addEventListener('click', () => { exportVideo(); });
+
   // 1. Material Inputs
   materialPreset.addEventListener('change', (e) => {
     applyMaterialPreset(e.target.value);
@@ -1354,6 +1367,7 @@ function handleMediaFile(file) {
       // Uploaded image becomes the scene's primary subject — auto-switch to heightmap.
       mediaMapping.value = 'heightmap';
       applyMediaMapping();
+      showVideoExportUIIfApplicable(); // hide video export controls for images
     };
   } else if (['mp4', 'webm', 'ogg', 'mov'].includes(extension) || file.type.startsWith('video/')) {
     loadedMediaType = 'video';
@@ -1391,6 +1405,7 @@ function handleMediaFile(file) {
       // Uploaded video becomes the scene's primary subject — auto-switch to heightmap.
       mediaMapping.value = 'heightmap';
       applyMediaMapping();
+      showVideoExportUIIfApplicable(); // reveal video export controls
     };
   } else {
     alert('Unsupported file format! Please upload an image or video.');
@@ -2014,6 +2029,160 @@ function render2D() {
       ctx2D.fill();
     }
   }
+}
+
+/* ===========================================================================
+   VIDEO EXPORT (MediaRecorder + canvas.captureStream)
+   ---------------------------------------------------------------------------
+   Records one full loop of the active video while the current canvas (either
+   the WebGL canvas in 3D mode or the 2D filter canvas) plays. Output format
+   is WebM (VP9) or MP4 (H.264), depending on browser support.
+   =========================================================================== */
+
+function pickSupportedMimeType(format) {
+  const candidates = format === 'mp4'
+    ? ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=h264', 'video/mp4']
+    : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  for (const c of candidates) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) return c;
+  }
+  return null;
+}
+
+function showVideoExportUIIfApplicable() {
+  // Only meaningful when a video is loaded and not currently exporting
+  const hasVideo = isMediaLoaded && loadedMediaType === 'video';
+  videoExportRow.style.display = hasVideo ? 'flex' : 'none';
+}
+
+function setExportProgress(ratio, label) {
+  const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  videoExportBarFill.style.width = `${pct}%`;
+  videoExportProgressText.textContent = label || `Recording ${pct}%`;
+}
+
+async function exportVideo() {
+  if (isExportingVideo) return;
+  if (!isMediaLoaded || loadedMediaType !== 'video' || !loadedMediaElement) {
+    alert('Please upload a video first.');
+    return;
+  }
+
+  const format = videoExportFormat.value === 'mp4' ? 'mp4' : 'webm';
+  const mimeType = pickSupportedMimeType(format);
+  if (!mimeType) {
+    alert(`${format.toUpperCase()} encoding is not supported in this browser. Try the other format.`);
+    return;
+  }
+
+  const sourceCanvas = (viewMode === '2d') ? canvas2D : webglCanvas;
+  const video = loadedMediaElement;
+  const duration = isFinite(video.duration) && video.duration > 0 ? video.duration : 5; // safety fallback
+  const fps = 30;
+
+  isExportingVideo = true;
+  btnExportVideo.disabled = true;
+  videoExportBtnLabel.textContent = 'Recording...';
+  videoExportProgress.style.display = 'flex';
+  setExportProgress(0, 'Recording 0%');
+
+  // Rewind & restart playback so we capture the full loop from the start
+  const wasMuted = video.muted;
+  video.pause();
+  try {
+    video.currentTime = 0;
+    // Wait for the seek to settle so the first captured frame is actually t=0
+    if (video.seekable && video.seekable.length > 0) {
+      await new Promise((res) => {
+        const done = () => { video.removeEventListener('seeked', done); res(); };
+        video.addEventListener('seeked', done, { once: true });
+        // Hard timeout in case 'seeked' never fires on some codecs
+        setTimeout(done, 250);
+      });
+    }
+  } catch (_) { /* some streams disallow seeking */ }
+
+  // Capture stream after rewind, so the first frame is t=0
+  let stream;
+  try {
+    stream = sourceCanvas.captureStream(fps);
+  } catch (err) {
+    cleanupAfterExport();
+    alert('Could not capture canvas stream: ' + err.message);
+    return;
+  }
+
+  const chunks = [];
+  const recorder = new MediaRecorder(stream, {
+    mimeType,
+    videoBitsPerSecond: 8_000_000,
+  });
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+  const startedAt = performance.now();
+  let progressInterval = null;
+
+  const finish = () => {
+    if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+    if (recorder.state !== 'inactive') {
+      try { recorder.stop(); } catch (_) { /* ignore */ }
+    }
+  };
+
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href = url;
+    a.download = `everything-lego-${ts}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    setExportProgress(1, 'Saved ✓');
+    setTimeout(() => {
+      cleanupAfterExport();
+      video.muted = wasMuted;
+      video.play().catch(() => {});
+    }, 800);
+  };
+
+  recorder.onerror = (e) => {
+    console.error('MediaRecorder error', e);
+    cleanupAfterExport();
+    alert('Recording failed: ' + (e.error?.message || 'unknown error'));
+  };
+
+  // Begin: play video, start recorder, schedule stop at one full loop
+  try {
+    await video.play();
+  } catch (err) {
+    cleanupAfterExport();
+    alert('Could not start video playback: ' + err.message);
+    return;
+  }
+  recorder.start(100); // collect chunks every 100 ms
+
+  // Progress reporter
+  progressInterval = setInterval(() => {
+    const elapsed = (performance.now() - startedAt) / 1000;
+    setExportProgress(elapsed / duration);
+  }, 100);
+
+  // Stop after the full duration (+ small grace period so the last frame lands)
+  setTimeout(finish, duration * 1000 + 250);
+}
+
+function cleanupAfterExport() {
+  isExportingVideo = false;
+  btnExportVideo.disabled = false;
+  videoExportBtnLabel.textContent = 'Export Video (one loop)';
+  setTimeout(() => {
+    videoExportProgress.style.display = 'none';
+    setExportProgress(0, 'Recording 0%');
+  }, 1200);
 }
 
 function setViewMode(mode) {

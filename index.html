@@ -432,6 +432,25 @@
                   <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                   Download 3D Model (.GLB)
                 </button>
+
+                <!-- Video Export: only shown when a video is loaded -->
+                <div id="video-export-row" class="video-export-row" style="display: none;">
+                  <div class="control-row" style="margin-bottom: 8px;">
+                    <label for="video-export-format">Video Format</label>
+                    <select id="video-export-format" class="form-select">
+                      <option value="webm" selected>WebM (VP9)</option>
+                      <option value="mp4">MP4 (H.264)</option>
+                    </select>
+                  </div>
+                  <button id="btn-export-video" class="btn btn-secondary btn-full">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                    <span id="video-export-btn-label">Export Video (one loop)</span>
+                  </button>
+                  <div id="video-export-progress" class="video-export-progress" style="display: none;">
+                    <div class="video-export-bar"><div id="video-export-bar-fill" class="video-export-bar-fill"></div></div>
+                    <span id="video-export-progress-text" class="video-export-progress-text">Recording 0%</span>
+                  </div>
+                </div>
               </div>
             </div>
 

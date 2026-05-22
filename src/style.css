@@ -327,6 +327,45 @@ body {
   opacity: 0.55;
 }
 
+/* Video export controls */
+.video-export-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--sidebar-border);
+}
+
+.video-export-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.video-export-bar {
+  height: 6px;
+  background: var(--range-track);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.video-export-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent-color);
+  box-shadow: 0 0 8px var(--accent-glow);
+  transition: width 0.12s linear;
+}
+
+.video-export-progress-text {
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 /* Sidebar styling */
 .sidebar {
   width: var(--sidebar-width);
