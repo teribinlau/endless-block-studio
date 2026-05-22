@@ -1978,11 +1978,13 @@ function render2D() {
   const offsetX = Math.round((w - gridW) / 2);
   const offsetY = Math.round((h - gridH) / 2);
 
-  // Stud geometry — flat solid circle, ~35% of tile size
-  const studR = tileSize * 0.34;
-  // Stud "shadow" is just a flat darker version of the brick colour. No
-  // gradients, no highlights — pure flat-design representation.
-  const STUD_TINT = 0.78;
+  // Stud geometry
+  const studR = tileSize * 0.36;
+  const highlightLineW = Math.max(1.5, studR * 0.13);
+  const highlightR = studR * 0.93;
+  // Top-arc spans ~120° centred on 12 o'clock (Canvas angles: 3π/2 is up).
+  const arcStart = Math.PI * 7 / 6;   // ≈ 210°
+  const arcEnd   = Math.PI * 11 / 6;  // ≈ 330°
 
   const useSnap = blockLegoSnap.checked; // optional; defaults checked
 
@@ -2000,22 +2002,45 @@ function render2D() {
       const G = Math.max(0, Math.min(255, Math.round(col.g * 255)));
       const B = Math.max(0, Math.min(255, Math.round(col.b * 255)));
 
+      // Same-hue brighter (toward white) and darker (toward black) variants
+      const hR = Math.min(255, R + Math.round((255 - R) * 0.32));
+      const hG = Math.min(255, G + Math.round((255 - G) * 0.32));
+      const hB = Math.min(255, B + Math.round((255 - B) * 0.32));
+      const dR = Math.round(R * 0.40);
+      const dG = Math.round(G * 0.40);
+      const dB = Math.round(B * 0.40);
+
       const x = offsetX + c * tileSize;
       const y = offsetY + r * tileSize;
+      const cxp = x + tileSize / 2;
+      const cyp = y + tileSize / 2;
 
       // 1. Brick body — flat solid fill, seamless (no gap)
       ctx2D.fillStyle = `rgb(${R},${G},${B})`;
       ctx2D.fillRect(x, y, tileSize, tileSize);
 
-      // 2. Stud — flat solid circle, slightly darker than the brick.
-      //    No gradient, no highlight, no halo — pure flat shape.
-      const sR = Math.round(R * STUD_TINT);
-      const sG = Math.round(G * STUD_TINT);
-      const sB = Math.round(B * STUD_TINT);
-      ctx2D.fillStyle = `rgb(${sR},${sG},${sB})`;
+      // 2. Bottom shadow inside the stud area — same-hue darker, vertical
+      //    linear gradient from transparent (top) to dark (bottom), clipped
+      //    to the stud circle.
+      ctx2D.save();
       ctx2D.beginPath();
-      ctx2D.arc(x + tileSize / 2, y + tileSize / 2, studR, 0, Math.PI * 2);
-      ctx2D.fill();
+      ctx2D.arc(cxp, cyp, studR, 0, Math.PI * 2);
+      ctx2D.clip();
+
+      const grad = ctx2D.createLinearGradient(cxp, cyp - studR * 0.25, cxp, cyp + studR);
+      grad.addColorStop(0, `rgba(${dR},${dG},${dB},0)`);
+      grad.addColorStop(1, `rgba(${dR},${dG},${dB},0.88)`);
+      ctx2D.fillStyle = grad;
+      ctx2D.fillRect(x, y, tileSize, tileSize);
+      ctx2D.restore();
+
+      // 3. Top-arc highlight — bright same-hue stroke covering ~120° of
+      //    the upper rim of the circle.
+      ctx2D.strokeStyle = `rgb(${hR},${hG},${hB})`;
+      ctx2D.lineWidth = highlightLineW;
+      ctx2D.beginPath();
+      ctx2D.arc(cxp, cyp, highlightR, arcStart, arcEnd);
+      ctx2D.stroke();
     }
   }
 }
