@@ -237,7 +237,7 @@ function applyMaterialPreset(presetKey) {
 }
 
 // Key directional light and hemi sky light
-let dirLight, hemiLight, fillLight, rimLight;
+let dirLight, hemiLight, fillLight, rimLight, ambientLight;
 
 // --- Step 1: Initialize Three.js Environment ---
 function init() {
@@ -278,7 +278,10 @@ function init() {
   controls.minDistance = 2;
 
   // 5. Lighting Setup
-  hemiLight = new THREE.HemisphereLight(0xffffff, 0x000000, parseFloat(hemiIntensity.value));
+  ambientLight = new THREE.AmbientLight(0xffffff, 0.45); // Add a supportive global ambient light to prevent dead blacks
+  scene.add(ambientLight);
+
+  hemiLight = new THREE.HemisphereLight(0xffffff, 0x33333f, parseFloat(hemiIntensity.value)); // Ground bounce light set to soft grey-blue instead of pitch black
   scene.add(hemiLight);
 
   dirLight = new THREE.DirectionalLight(0xffffff, parseFloat(lightIntensity.value));
@@ -302,11 +305,11 @@ function init() {
 
   // Studio 3-point: cool fill light from opposite side lifts shadow side without
   // washing out shape. Rim light from behind-above traces the silhouette / stud edges.
-  fillLight = new THREE.DirectionalLight(0xdce8ff, 1.0);
+  fillLight = new THREE.DirectionalLight(0xdce8ff, 1.8); // Increased from 1.0 to 1.8 for stronger fill
   fillLight.position.set(-8, 6, 6);
   scene.add(fillLight);
 
-  rimLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  rimLight = new THREE.DirectionalLight(0xffffff, 2.5); // Increased from 2.0 to 2.5 for better outline definition
   rimLight.position.set(2, 8, -10);
   scene.add(rimLight);
 
