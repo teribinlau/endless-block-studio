@@ -1,6 +1,7 @@
 import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
@@ -599,6 +600,9 @@ function applyMaterialPreset(presetKey) {
 // Key directional light and hemi sky light
 let dirLight, hemiLight, fillLight, rimLight, ambientLight, rectAreaLight;
 
+// TransformControls (translate / rotate / scale gizmo for the model)
+let transformControls = null;
+
 // Post-processing chain (created in setupPostFx())
 let composer = null;
 let bloomPass = null;
@@ -667,6 +671,25 @@ async function init() {
   controls.dampingFactor = 1.0 / parseFloat(animMass.value); // Maps to easing inertia
   controls.autoRotate = false; // Disabled on startup for better UX
   controls.autoRotateSpeed = parseFloat(animSpeed.value) * 50.0;
+
+  // TransformControls (gizmo for translate / rotate / scale of currentModel)
+  // — disabled by default; user picks a mode via the Model Transform panel.
+  transformControls = new TransformControls(camera, renderer.domElement);
+  transformControls.setSize(0.7);
+  transformControls.addEventListener('dragging-changed', (e) => {
+    // Suspend orbit drag while the gizmo is grabbed so the camera doesn't
+    // fight the manipulation.
+    controls.enabled = !e.value;
+    // When the user releases the gizmo, re-voxelise (if Block Mode is on)
+    // so the brick grid matches the new pose.
+    if (!e.value && blockMode.checked) updateBlockEffect();
+  });
+  // r170+: the gizmo geometry lives in a separate helper object
+  const tcHelper = (typeof transformControls.getHelper === 'function')
+    ? transformControls.getHelper()
+    : transformControls;
+  scene.add(tcHelper);
+  transformControls.visible = false; // hidden until user selects a mode
 
   // Uncheck the auto-rotate checkbox to match the actual state
   animAutoRotate.checked = false;
@@ -1128,6 +1151,81 @@ function setupModelInScene(object) {
     infoVertices.textContent = formatNumber(modelStats.vertices);
     infoTriangles.textContent = formatNumber(modelStats.triangles);
   }
+
+  // Re-attach the transform gizmo to the new model (if a mode is active)
+  if (transformControls) {
+    transformControls.attach(currentModel);
+    transformControls.visible = transformControls.mode &&
+      (transformGizmoMode === 'translate' || transformGizmoMode === 'rotate' || transformGizmoMode === 'scale');
+  }
+}
+
+// Tracks which manipulation mode is active (controls gizmo visibility)
+let transformGizmoMode = 'none';
+
+/* Set the transform gizmo mode. 'none' hides it; the other three switch
+   the gizmo handles to translate / rotate / scale. */
+function setTransformMode(mode) {
+  transformGizmoMode = mode;
+  if (!transformControls) return;
+  if (mode === 'none') {
+    transformControls.visible = false;
+    transformControls.enabled = false;
+  } else {
+    transformControls.setMode(mode);
+    transformControls.visible = true;
+    transformControls.enabled = true;
+    if (currentModel && transformControls.object !== currentModel) {
+      transformControls.attach(currentModel);
+    }
+  }
+  // Reflect the active button in the UI
+  ['translate','rotate','scale','none'].forEach((m) => {
+    const btn = document.getElementById(`tf-${m}`);
+    if (btn) btn.classList.toggle('active', m === mode);
+  });
+}
+
+/* Rotate currentModel so that one of its local axes becomes the "down"
+   direction, then drop it onto the floor (minY = 0). Useful for STL /
+   3MF imports that came out of a slicer in arbitrary orientation. */
+function setModelBottomAxis(axis) {
+  if (!currentModel) return;
+  switch (axis) {
+    case '+x': currentModel.rotation.set(0, 0, -Math.PI / 2); break;
+    case '-x': currentModel.rotation.set(0, 0,  Math.PI / 2); break;
+    case '+y': currentModel.rotation.set( Math.PI, 0, 0);     break;
+    case '-y': currentModel.rotation.set(0, 0, 0);            break; // default
+    case '+z': currentModel.rotation.set( Math.PI / 2, 0, 0); break;
+    case '-z': currentModel.rotation.set(-Math.PI / 2, 0, 0); break;
+  }
+  snapModelToFloor();
+  if (blockMode.checked) updateBlockEffect();
+}
+
+/* Translate currentModel so its lowest point sits at y = 0. Preserves
+   rotation + XZ position. */
+function snapModelToFloor() {
+  if (!currentModel) return;
+  currentModel.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(currentModel);
+  if (!isFinite(box.min.y)) return;
+  currentModel.position.y -= box.min.y;
+}
+
+/* Reset all transform state on currentModel back to identity. */
+function resetModelTransform() {
+  if (!currentModel) return;
+  currentModel.position.set(0, 0, 0);
+  currentModel.rotation.set(0, 0, 0);
+  currentModel.scale.set(1, 1, 1);
+  autoScaleModel();
+  // Re-center after reset
+  const box = new THREE.Box3().setFromObject(currentModel);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  currentModel.position.sub(center);
+  if (blockMode.checked) updateBlockEffect();
 }
 
 // Fallback placeholder shape
@@ -1553,6 +1651,25 @@ function setupUIEventListeners() {
   // 0. 2D / 3D View-Mode toggle (top-center pill)
   btnMode3D.addEventListener('click', () => setViewMode('3d'));
   btnMode2D.addEventListener('click', () => setViewMode('2d'));
+
+  // ── Model Transform gizmo + bottom-face controls ─────────────────────
+  ['translate','rotate','scale','none'].forEach((mode) => {
+    const btn = document.getElementById(`tf-${mode}`);
+    if (btn) btn.addEventListener('click', () => setTransformMode(mode));
+  });
+  document.querySelectorAll('.tf-bottom-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const axis = btn.getAttribute('data-axis');
+      setModelBottomAxis(axis);
+    });
+  });
+  const btnSnapFloor = document.getElementById('tf-snap-floor');
+  const btnResetXf   = document.getElementById('tf-reset');
+  if (btnSnapFloor) btnSnapFloor.addEventListener('click', () => {
+    snapModelToFloor();
+    if (blockMode.checked) updateBlockEffect();
+  });
+  if (btnResetXf)   btnResetXf.addEventListener('click',   resetModelTransform);
 
   // 0a. Pan + Zoom for the 2D Lego-filter canvas
   // ---------------------------------------------

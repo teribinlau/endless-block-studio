@@ -401,6 +401,61 @@ body {
   margin: 0;
 }
 
+/* Model Transform — gizmo mode buttons + bottom-face grid */
+.tf-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin: 4px 0 6px;
+}
+.tf-mode-btn {
+  font-family: var(--font-primary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 6px 4px;
+  border: 1px solid var(--sidebar-border);
+  background: transparent;
+  color: var(--text-main);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tf-mode-btn:hover { background: var(--card-hover); }
+.tf-mode-btn.active {
+  background: var(--accent-color);
+  color: var(--bg-color);
+  border-color: var(--accent-color);
+}
+
+.tf-bottom-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+.tf-bottom-btn {
+  font-family: var(--font-primary);
+  font-size: 0.70rem;
+  font-weight: 600;
+  padding: 6px;
+  border: 1px solid var(--sidebar-border);
+  background: transparent;
+  color: var(--text-main);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tf-bottom-btn:hover { background: var(--card-hover); }
+.tf-bottom-btn:active {
+  background: var(--accent-color);
+  color: var(--bg-color);
+}
+
+.tf-action-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 /* Sub-section divider inside a control-group (e.g. "Advanced" inside Material Config) */
 .control-divider {
   font-family: var(--font-code);
