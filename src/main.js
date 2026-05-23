@@ -69,6 +69,13 @@ const materialThickness = document.getElementById('material-thickness');
 const valThickness = document.getElementById('val-thickness');
 const materialIor = document.getElementById('material-ior');
 const valIor = document.getElementById('val-ior');
+// Extended PBR sliders
+const matClearcoat   = document.getElementById('material-clearcoat');
+const valClearcoat   = document.getElementById('val-clearcoat');
+const matSheen       = document.getElementById('material-sheen');
+const valSheen       = document.getElementById('val-sheen');
+const matIridescence = document.getElementById('material-iridescence');
+const valIridescence = document.getElementById('val-iridescence');
 const modelScale = document.getElementById('model-scale');
 const valScale = document.getElementById('val-scale');
 
@@ -166,54 +173,153 @@ const physicalMaterial = new THREE.MeshPhysicalMaterial({
   thickness: parseFloat(materialThickness.value),
   ior: parseFloat(materialIor.value),
   reflectivity: 0.5,
-  clearcoat: 1.0,
+  // --- Extended PBR properties (driven by presets / advanced sliders) ----
+  clearcoat: 0.0,
   clearcoatRoughness: 0.1,
+  sheen: 0.0,
+  sheenRoughness: 0.5,
+  sheenColor: new THREE.Color(0xffffff),
+  iridescence: 0.0,
+  iridescenceIOR: 1.3,
+  iridescenceThicknessRange: [100, 800],
+  // ----------------------------------------------------------------------
   side: THREE.DoubleSide,
   transparent: parseFloat(materialTransmission.value) > 0,
   depthWrite: true,
 });
 
-// Material Presets Parameter Configs
+// Material Presets — extended catalogue. Every preset specifies the full
+// set of properties driven by Material Config + Advanced sliders. Missing
+// extended props (clearcoat / sheen / iridescence) default to 0.
 const materialPresets = {
+  // ── Plastic & Polymer ────────────────────────────────────────────────
   plastic: {
-    roughness: 0.5,
-    metalness: 0.0,
-    transmission: 0.0,
-    thickness: 0.0,
-    ior: 1.5,
+    roughness: 0.50, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
     color: '#ffffff'
   },
+  'plastic-glossy': {
+    roughness: 0.15, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.30, sheen: 0.00, iridescence: 0.00,
+    color: '#ffffff'
+  },
+  rubber: {
+    roughness: 0.95, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#1a1a1a'
+  },
+  wax: {
+    roughness: 0.40, metalness: 0.00,
+    transmission: 0.45, thickness: 8.0, ior: 1.45,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#fff8e0'
+  },
+
+  // ── Glass & Crystal ──────────────────────────────────────────────────
   'frosted-glass': {
-    roughness: 0.45,
-    metalness: 0.0,
-    transmission: 0.9,
-    thickness: 10.0,
-    ior: 1.52,
+    roughness: 0.45, metalness: 0.00,
+    transmission: 0.90, thickness: 10.0, ior: 1.52,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
     color: '#ffffff'
   },
-  terracotta: {
-    roughness: 0.95,
-    metalness: 0.0,
-    transmission: 0.0,
-    thickness: 0.0,
-    ior: 1.5,
+  crystal: {
+    roughness: 0.00, metalness: 0.00,
+    transmission: 1.00, thickness: 30.0, ior: 2.40,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
     color: '#ffffff'
+  },
+  ice: {
+    roughness: 0.30, metalness: 0.00,
+    transmission: 0.85, thickness: 12.0, ior: 1.31,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#cdeaff'
   },
   ruby: {
-    roughness: 0.15,
-    metalness: 0.0,
-    transmission: 0.95,
-    thickness: 15.0,
-    ior: 1.77,
+    roughness: 0.15, metalness: 0.00,
+    transmission: 0.95, thickness: 15.0, ior: 1.77,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
     color: '#e0115f'
   },
-  metal: {
-    roughness: 0.1,
-    metalness: 1.0,
-    transmission: 0.0,
-    thickness: 0.0,
-    ior: 1.5,
+  amber: {
+    roughness: 0.20, metalness: 0.00,
+    transmission: 0.80, thickness: 14.0, ior: 1.55,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#ff9d2f'
+  },
+  diamond: {
+    roughness: 0.00, metalness: 0.00,
+    transmission: 1.00, thickness: 20.0, ior: 2.42,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
     color: '#ffffff'
+  },
+  honey: {
+    roughness: 0.10, metalness: 0.00,
+    transmission: 0.85, thickness: 18.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#f0b400'
+  },
+
+  // ── Metal ────────────────────────────────────────────────────────────
+  metal: {  // Polished Silver
+    roughness: 0.10, metalness: 1.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#ffffff'
+  },
+  'brushed-steel': {
+    roughness: 0.60, metalness: 1.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#b8b8b8'
+  },
+  gold: {
+    roughness: 0.20, metalness: 1.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#ffd700'
+  },
+  copper: {
+    roughness: 0.25, metalness: 1.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#b87333'
+  },
+
+  // ── Stone & Ceramic ──────────────────────────────────────────────────
+  terracotta: {
+    roughness: 0.95, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
+    color: '#c46a3c'
+  },
+
+  // ── Special Optics ───────────────────────────────────────────────────
+  'car-paint': {
+    roughness: 0.40, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 1.00, sheen: 0.00, iridescence: 0.00,
+    color: '#ffffff'
+  },
+  velvet: {
+    roughness: 0.95, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.00, sheen: 1.00, iridescence: 0.00,
+    color: '#4a1a4a'
+  },
+  'soap-bubble': {
+    roughness: 0.00, metalness: 0.00,
+    transmission: 1.00, thickness: 5.0, ior: 1.33,
+    clearcoat: 0.00, sheen: 0.00, iridescence: 1.00,
+    color: '#ffffff'
+  },
+  pearl: {
+    roughness: 0.35, metalness: 0.30,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.30, sheen: 0.40, iridescence: 0.50,
+    color: '#fff5e8'
   }
 };
 
@@ -229,6 +335,17 @@ function updateVoxelMaterials() {
       mat.transmission = physicalMaterial.transmission;
       mat.thickness = physicalMaterial.thickness;
       mat.ior = physicalMaterial.ior;
+      // Extended PBR props
+      mat.clearcoat = physicalMaterial.clearcoat;
+      mat.clearcoatRoughness = physicalMaterial.clearcoatRoughness;
+      mat.sheen = physicalMaterial.sheen;
+      mat.sheenRoughness = physicalMaterial.sheenRoughness;
+      if (mat.sheenColor && physicalMaterial.sheenColor) {
+        mat.sheenColor.copy(physicalMaterial.sheenColor);
+      }
+      mat.iridescence = physicalMaterial.iridescence;
+      mat.iridescenceIOR = physicalMaterial.iridescenceIOR;
+      mat.iridescenceThicknessRange = physicalMaterial.iridescenceThicknessRange;
       mat.transparent = physicalMaterial.transmission > 0;
       mat.needsUpdate = true;
     }
@@ -240,6 +357,7 @@ function applyMaterialPreset(presetKey) {
   const preset = materialPresets[presetKey];
   if (!preset) return;
 
+  // ── Basic PBR sliders ─────────────────────────────────────────────────
   materialRoughness.value = preset.roughness;
   valRoughness.textContent = preset.roughness.toFixed(2);
 
@@ -255,15 +373,42 @@ function applyMaterialPreset(presetKey) {
   materialIor.value = preset.ior;
   valIor.textContent = preset.ior.toFixed(2);
 
-  physicalMaterial.roughness = preset.roughness;
-  physicalMaterial.metalness = preset.metalness;
+  physicalMaterial.roughness    = preset.roughness;
+  physicalMaterial.metalness    = preset.metalness;
   physicalMaterial.transmission = preset.transmission;
-  physicalMaterial.thickness = preset.thickness;
-  physicalMaterial.ior = preset.ior;
+  physicalMaterial.thickness    = preset.thickness;
+  physicalMaterial.ior          = preset.ior;
   physicalMaterial.color.set(preset.color);
-  physicalMaterial.transparent = preset.transmission > 0;
-  physicalMaterial.needsUpdate = true;
+  physicalMaterial.transparent  = preset.transmission > 0;
 
+  // ── Extended PBR (Clearcoat / Sheen / Iridescence) ─────────────────────
+  const cc  = preset.clearcoat   ?? 0;
+  const sh  = preset.sheen       ?? 0;
+  const ir  = preset.iridescence ?? 0;
+  physicalMaterial.clearcoat   = cc;
+  physicalMaterial.sheen       = sh;
+  physicalMaterial.iridescence = ir;
+  // Sheen on cloth tints toward the base color so the rim catches it naturally
+  if (sh > 0 && physicalMaterial.sheenColor) {
+    physicalMaterial.sheenColor.copy(physicalMaterial.color);
+  } else if (physicalMaterial.sheenColor) {
+    physicalMaterial.sheenColor.set(0xffffff);
+  }
+
+  if (matClearcoat) {
+    matClearcoat.value = cc;
+    valClearcoat.textContent = cc.toFixed(2);
+  }
+  if (matSheen) {
+    matSheen.value = sh;
+    valSheen.textContent = sh.toFixed(2);
+  }
+  if (matIridescence) {
+    matIridescence.value = ir;
+    valIridescence.textContent = ir.toFixed(2);
+  }
+
+  physicalMaterial.needsUpdate = true;
   updateVoxelMaterials();
 }
 
@@ -1074,6 +1219,39 @@ function setupUIEventListeners() {
     const val = parseFloat(e.target.value);
     valIor.textContent = val.toFixed(2);
     physicalMaterial.ior = val;
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
+  });
+
+  // Advanced PBR — Clearcoat (透明涂层)
+  matClearcoat.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    valClearcoat.textContent = val.toFixed(2);
+    physicalMaterial.clearcoat = val;
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
+  });
+
+  // Advanced PBR — Sheen (绒面边缘高光). Tints sheenColor toward base so
+  // velvet / fabric reads naturally on any colour.
+  matSheen.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    valSheen.textContent = val.toFixed(2);
+    physicalMaterial.sheen = val;
+    if (val > 0 && physicalMaterial.sheenColor) {
+      physicalMaterial.sheenColor.copy(physicalMaterial.color);
+    } else if (physicalMaterial.sheenColor) {
+      physicalMaterial.sheenColor.set(0xffffff);
+    }
+    materialPreset.value = 'custom';
+    updateVoxelMaterials();
+  });
+
+  // Advanced PBR — Iridescence (彩虹薄膜)
+  matIridescence.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    valIridescence.textContent = val.toFixed(2);
+    physicalMaterial.iridescence = val;
     materialPreset.value = 'custom';
     updateVoxelMaterials();
   });
