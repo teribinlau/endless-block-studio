@@ -3,6 +3,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { ThreeMFLoader } from 'three/examples/jsm/loaders/3MFLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -3046,53 +3049,59 @@ function handleCustomFile(file) {
   showLoader(true);
   loaderProgress.textContent = 'Parsing...';
 
-  reader.onload = function (e) {
-    const contents = e.target.result;
+  // OBJ is text; everything else is binary
+  const needsText = (extension === 'obj');
 
-    if (extension === 'fbx') {
-      const loader = new FBXLoader();
-      try {
-        const fbx = loader.parse(contents, '');
-        setupModelInScene(fbx);
-        
-        // Auto-scale custom model to fit view nicely
-        autoScaleModel();
-        
-        displayProjectName.textContent = `Custom / ${file.name}`;
-        showLoader(false);
-      } catch (err) {
-        console.error('Failed to parse uploaded FBX model:', err);
-        loaderProgress.textContent = 'Parse error. File corrupted?';
-        setTimeout(() => showLoader(false), 2000);
-      }
-    } else if (extension === 'glb' || extension === 'gltf') {
-      const loader = new GLTFLoader();
-      try {
-        loader.parse(contents, '', (gltf) => {
-          setupModelInScene(gltf.scene);
-          
-          // Auto-scale custom model
-          autoScaleModel();
-
-          displayProjectName.textContent = `Custom / ${file.name}`;
-          showLoader(false);
-        }, (err) => {
-          console.error('Failed parsing GLB scene:', err);
-          loaderProgress.textContent = 'Parse error. Check file.';
-          setTimeout(() => showLoader(false), 2000);
-        });
-      } catch (err) {
-        console.error('GLTF parser exception:', err);
-        loaderProgress.textContent = 'Error parsing file.';
-        setTimeout(() => showLoader(false), 2000);
-      }
-    } else {
-      loaderProgress.textContent = 'Unsupported format!';
-      setTimeout(() => showLoader(false), 2000);
+  const finish = (rootObject) => {
+    // STL gives us a BufferGeometry; wrap it in a Mesh with the current
+    // physicalMaterial so it slots into setupModelInScene like any other.
+    if (rootObject && rootObject.isBufferGeometry) {
+      rootObject.computeVertexNormals();
+      const mesh = new THREE.Mesh(rootObject, physicalMaterial.clone());
+      mesh.castShadow = mesh.receiveShadow = true;
+      const wrap = new THREE.Group();
+      wrap.add(mesh);
+      rootObject = wrap;
     }
+    setupModelInScene(rootObject);
+    autoScaleModel();
+    displayProjectName.textContent = `Custom / ${file.name}`;
+    showLoader(false);
+  };
+  const fail = (err, label) => {
+    console.error(`Failed to parse ${label}:`, err);
+    loaderProgress.textContent = 'Parse error. Check file.';
+    setTimeout(() => showLoader(false), 2000);
   };
 
-  reader.readAsArrayBuffer(file);
+  reader.onload = function (e) {
+    const contents = e.target.result;
+    try {
+      if (extension === 'fbx') {
+        finish(new FBXLoader().parse(contents, ''));
+      } else if (extension === 'glb' || extension === 'gltf') {
+        new GLTFLoader().parse(contents, '', (gltf) => finish(gltf.scene), (err) => fail(err, 'GLTF'));
+      } else if (extension === 'obj') {
+        // OBJLoader.parse(text) → Group
+        finish(new OBJLoader().parse(contents));
+      } else if (extension === 'stl') {
+        // STLLoader.parse(buffer) → BufferGeometry (handles ASCII + binary)
+        finish(new STLLoader().parse(contents));
+      } else if (extension === '3mf') {
+        // 3MF is a ZIP; ThreeMFLoader.parse(buffer) → Group
+        finish(new ThreeMFLoader().parse(contents));
+      } else {
+        loaderProgress.textContent = 'Unsupported format!';
+        setTimeout(() => showLoader(false), 2000);
+      }
+    } catch (err) {
+      fail(err, extension.toUpperCase());
+    }
+  };
+  reader.onerror = (err) => fail(err, 'file read');
+
+  if (needsText) reader.readAsText(file);
+  else           reader.readAsArrayBuffer(file);
 }
 
 // Auto-scale custom models based on bounding boxes
