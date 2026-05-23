@@ -236,31 +236,71 @@ function loadWoodTexture(url, sRGB = true) {
   }
 })();
 
+// ─── Mat Works PBR texture cache (50 materials, lazy-loaded) ────────────
+// Each material lives at /textures/mats/<MatName>/<MatName>_<map>.png with
+// four maps: basecolor, metallic, normal, roughness. We only fetch a
+// material's 4 textures the first time the user picks its preset; after
+// that the result is cached so re-selecting is instant.
+const matTextureCache = new Map(); // matName → { basecolor, metallic, normal, roughness }
+
+function loadMatTexture(url, sRGB) {
+  return new Promise((resolve) => {
+    woodTextureLoader.load(
+      url,
+      (tex) => {
+        if (sRGB) tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = 4;
+        resolve(tex);
+      },
+      undefined,
+      () => resolve(null) // 404 / decode error → null
+    );
+  });
+}
+
+async function getMatTextures(matName) {
+  if (matTextureCache.has(matName)) return matTextureCache.get(matName);
+  const base = `/textures/mats/${matName}/${matName}`;
+  const [basecolor, metallic, normal, roughness] = await Promise.all([
+    loadMatTexture(`${base}_basecolor.png`, /*sRGB*/ true),
+    loadMatTexture(`${base}_metallic.png`,  /*sRGB*/ false),
+    loadMatTexture(`${base}_normal.png`,    /*sRGB*/ false),
+    loadMatTexture(`${base}_roughness.png`, /*sRGB*/ false),
+  ]);
+  const set = { basecolor, metallic, normal, roughness };
+  matTextureCache.set(matName, set);
+  return set;
+}
+
 // Material Presets — extended catalogue. Every preset specifies the full
 // set of properties driven by Material Config + Advanced sliders. Missing
 // extended props (clearcoat / sheen / iridescence) default to 0. Presets
 // with a `texture` field will swap in diffuse + normal maps from the wood
 // texture cache when applied.
+// Helper: mat-based preset (textures override the scalars per-pixel)
+// roughness/metalness=1 means "use the full value from the maps"
+const mp = (mat, opts = {}) => ({
+  roughness: 1, metalness: 1,
+  transmission: 0, thickness: 0, ior: 1.5,
+  clearcoat: 0, sheen: 0, iridescence: 0,
+  color: '#ffffff',
+  mat,
+  ...opts,
+});
+
 const materialPresets = {
-  // ── Plastic & Polymer ────────────────────────────────────────────────
-  plastic: {
-    roughness: 0.50, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff'
-  },
-  'plastic-glossy': {
-    roughness: 0.15, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.30, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff'
-  },
-  rubber: {
-    roughness: 0.95, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#1a1a1a'
-  },
+  // ── Plastic & Polymer (mat-textured + special) ──────────────────────
+  plastic:               mp('Matte_Rough_Plastic'),
+  'plastic-rough':       mp('Rough_Plastic'),
+  'plastic-ultra-rough': mp('Ultra_Rough_Plastic'),
+  'plastic-glossy':      mp('Shiny_Plastic', { clearcoat: 0.2 }),
+  'plastic-industrial':  mp('Industrial_Plastic'),
+  'plastic-half-matte':  mp('Half_Matte_Plastic'),
+  'plastic-checkered':   mp('Checkered_Plastic'),
+  'plastic-translucent': mp('Translucent_Plastic', { transmission: 0.6, thickness: 4, ior: 1.5 }),
+  foam:                  mp('Hard_Foam'),
   wax: {
     roughness: 0.40, metalness: 0.00,
     transmission: 0.45, thickness: 8.0, ior: 1.45,
@@ -268,135 +308,77 @@ const materialPresets = {
     color: '#fff8e0'
   },
 
-  // ── Glass & Crystal ──────────────────────────────────────────────────
-  'frosted-glass': {
-    roughness: 0.45, metalness: 0.00,
-    transmission: 0.90, thickness: 10.0, ior: 1.52,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff'
-  },
-  crystal: {
-    roughness: 0.00, metalness: 0.00,
-    transmission: 1.00, thickness: 30.0, ior: 2.40,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff'
-  },
-  ice: {
-    roughness: 0.30, metalness: 0.00,
-    transmission: 0.85, thickness: 12.0, ior: 1.31,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#cdeaff'
-  },
-  ruby: {
-    roughness: 0.15, metalness: 0.00,
-    transmission: 0.95, thickness: 15.0, ior: 1.77,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#e0115f'
-  },
-  amber: {
-    roughness: 0.20, metalness: 0.00,
-    transmission: 0.80, thickness: 14.0, ior: 1.55,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ff9d2f'
-  },
-  diamond: {
-    roughness: 0.00, metalness: 0.00,
-    transmission: 1.00, thickness: 20.0, ior: 2.42,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff'
-  },
-  honey: {
-    roughness: 0.10, metalness: 0.00,
-    transmission: 0.85, thickness: 18.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#f0b400'
-  },
+  // ── Rubber & Soft ───────────────────────────────────────────────────
+  rubber:                  mp('Synthetic_Rubber'),
+  'rubber-mat':            mp('Rubber_Mat'),
+  'rubber-mat-translucent':mp('Rubber_Mat_Translucent', { transmission: 0.45, thickness: 3 }),
+  'rubber-diamond':        mp('Diamond_Rubber'),
+  'rubber-indented':       mp('Indented_Rubber'),
+  'rubber-perforated':     mp('Perforated_Rubber'),
+  'rubber-tyre':           mp('Rubber_Tyre'),
 
-  // ── Metal ────────────────────────────────────────────────────────────
-  metal: {  // Polished Silver
-    roughness: 0.10, metalness: 1.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff'
-  },
-  'brushed-steel': {
-    roughness: 0.60, metalness: 1.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#b8b8b8'
-  },
-  gold: {
-    roughness: 0.20, metalness: 1.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ffd700'
-  },
-  copper: {
-    roughness: 0.25, metalness: 1.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#b87333'
-  },
-  'chrome-plated': {
-    // Electroplated chrome — full metal with an extra clearcoat layer
-    // that produces the trademark "wet mirror" depth.
-    roughness: 0.04, metalness: 1.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.50, sheen: 0.00, iridescence: 0.00,
-    color: '#f0f2f5'
-  },
+  // ── Glass & Crystal ─────────────────────────────────────────────────
+  'frosted-glass': mp('Frosted_Glass', { transmission: 0.85, thickness: 8, ior: 1.52 }),
+  'canopy-glass':  mp('Canopy_Glass',  { transmission: 0.85, thickness: 6, ior: 1.50 }),
+  'matte-screen':  mp('Matte_Screen'),
+  crystal: { roughness: 0.00, metalness: 0.00, transmission: 1.00, thickness: 30.0, ior: 2.40, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#ffffff' },
+  ice:     { roughness: 0.30, metalness: 0.00, transmission: 0.85, thickness: 12.0, ior: 1.31, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#cdeaff' },
+  ruby:    { roughness: 0.15, metalness: 0.00, transmission: 0.95, thickness: 15.0, ior: 1.77, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#e0115f' },
+  amber:   { roughness: 0.20, metalness: 0.00, transmission: 0.80, thickness: 14.0, ior: 1.55, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#ff9d2f' },
+  diamond: { roughness: 0.00, metalness: 0.00, transmission: 1.00, thickness: 20.0, ior: 2.42, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#ffffff' },
+  honey:   { roughness: 0.10, metalness: 0.00, transmission: 0.85, thickness: 18.0, ior: 1.50, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#f0b400' },
 
-  // ── Stone, Wood & Ceramic ────────────────────────────────────────────
-  terracotta: {
-    roughness: 0.95, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
-    color: '#c46a3c'
-  },
-  marble: {
-    // Polished marble — very smooth low-roughness surface, light clearcoat,
-    // and a touch of transmission/thickness to fake the subsurface glow
-    // characteristic of real marble slabs.
-    roughness: 0.10, metalness: 0.00,
-    transmission: 0.08, thickness: 4.0, ior: 1.52,
-    clearcoat: 0.60, sheen: 0.00, iridescence: 0.00,
-    color: '#f5f0e8'
-  },
-  wood: {
-    // Natural wood — full PBR texture set (albedo + normal + AO) loaded
-    // from public/textures/wood/. Color stays white so the albedo map
-    // shows pure, untinted by the base colour.
-    roughness: 0.80, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.12, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff', useWoodTextures: true
-  },
+  // ── Metal (Aluminium / Steel / Titanium / Copper + classics) ─────────
+  'al-polished':   mp('Polished_Aluminium'),
+  'al-brushed':    mp('Alluminium'),
+  'al-lc':         mp('LC_Aluminium'),
+  'metal-basic':   mp('Basic_Metal'),
+  'metal-white':   mp('White_Metal'),
+  'steel-brushed': mp('Half_Matt_Steel'),
+  'steel-machined':mp('Machined_Steel'),
+  'steel-hex':     mp('Hex_Steel'),
+  'steel-graphite':mp('Graphite_Steel'),
+  'steel-midnight':mp('Midnight_Steel'),
+  'steel-camo':    mp('Camo_Steel'),
+  'steel-powder':  mp('Powder_Coated_Steel'),
+  'steel-grainy':  mp('Coated_Grainy_Steel'),
+  'titanium-coated':mp('Coated_Titanium'),
+  'titanium-cyber':mp('Cyber_Titanium'),
+  copper:          mp('Copper'),
+  gold:    { roughness: 0.20, metalness: 1.00, transmission: 0.00, thickness: 0.0, ior: 1.50, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#ffd700' },
+  'chrome-plated': { roughness: 0.04, metalness: 1.00, transmission: 0.00, thickness: 0.0, ior: 1.50, clearcoat: 0.50, sheen: 0.00, iridescence: 0.00, color: '#f0f2f5' },
 
-  // ── Special Optics ───────────────────────────────────────────────────
-  'car-paint': {
-    roughness: 0.40, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 1.00, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff'
-  },
-  velvet: {
-    roughness: 0.95, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.00, sheen: 1.00, iridescence: 0.00,
-    color: '#4a1a4a'
-  },
-  'soap-bubble': {
-    roughness: 0.00, metalness: 0.00,
-    transmission: 1.00, thickness: 5.0, ior: 1.33,
-    clearcoat: 0.00, sheen: 0.00, iridescence: 1.00,
-    color: '#ffffff'
-  },
-  pearl: {
-    roughness: 0.35, metalness: 0.30,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.30, sheen: 0.40, iridescence: 0.50,
-    color: '#fff5e8'
-  }
+  // ── Carbon Composite ────────────────────────────────────────────────
+  'carbon-fiber':        mp('Carbon_Fiber'),
+  'carbon-fiber-coated': mp('Carbon_Fiber_Coated', { clearcoat: 0.5 }),
+
+  // ── Fabric & Cable ──────────────────────────────────────────────────
+  'leather-black':  mp('Black_Leather'),
+  'fabric-military':mp('Military_Fabric', { sheen: 0.3 }),
+  'cable-fabric':   mp('Braided_Cable_Fabric'),
+  'cable-steel':    mp('Braided_Cable_Steel'),
+  velcro:           mp('Velcro'),
+  'hook-loop':      mp('Hook_And_Loop'),
+
+  // ── Industrial / Patterns ───────────────────────────────────────────
+  'floor-composite': mp('Composite_Floor'),
+  'scales-composite':mp('Composite_Scales'),
+  'floor-dotted':    mp('Dotted_Steel_Floor'),
+  'net-dotted':      mp('Dotted_Steel_Net'),
+  'floor-steel-1':   mp('Steel_Floor_1'),
+  'floor-steel-2':   mp('Steel_Floor_2'),
+  'scales-steel':    mp('Steel_Scales'),
+
+  // ── Stone, Wood & Ceramic ───────────────────────────────────────────
+  terracotta: { roughness: 0.95, metalness: 0.00, transmission: 0.00, thickness: 0.0, ior: 1.50, clearcoat: 0.00, sheen: 0.00, iridescence: 0.00, color: '#c46a3c' },
+  marble:     { roughness: 0.10, metalness: 0.00, transmission: 0.08, thickness: 4.0, ior: 1.52, clearcoat: 0.60, sheen: 0.00, iridescence: 0.00, color: '#f5f0e8' },
+  wood:       { roughness: 0.80, metalness: 0.00, transmission: 0.00, thickness: 0.0, ior: 1.50, clearcoat: 0.12, sheen: 0.00, iridescence: 0.00, color: '#ffffff', useWoodTextures: true },
+
+  // ── Special Optics ──────────────────────────────────────────────────
+  'car-paint':   { roughness: 0.40, metalness: 0.00, transmission: 0.00, thickness: 0.0, ior: 1.50, clearcoat: 1.00, sheen: 0.00, iridescence: 0.00, color: '#ffffff' },
+  velvet:        { roughness: 0.95, metalness: 0.00, transmission: 0.00, thickness: 0.0, ior: 1.50, clearcoat: 0.00, sheen: 1.00, iridescence: 0.00, color: '#4a1a4a' },
+  'soap-bubble': { roughness: 0.00, metalness: 0.00, transmission: 1.00, thickness: 5.0, ior: 1.33, clearcoat: 0.00, sheen: 0.00, iridescence: 1.00, color: '#ffffff' },
+  pearl:         { roughness: 0.35, metalness: 0.30, transmission: 0.00, thickness: 0.0, ior: 1.50, clearcoat: 0.30, sheen: 0.40, iridescence: 0.50, color: '#fff5e8' }
 };
 
 // Real-Time Material Update/Synchronizer
@@ -422,10 +404,14 @@ function updateVoxelMaterials() {
       mat.iridescence = physicalMaterial.iridescence;
       mat.iridescenceIOR = physicalMaterial.iridescenceIOR;
       mat.iridescenceThicknessRange = physicalMaterial.iridescenceThicknessRange;
-      // Wood-family texture forwarding (albedo + normal + AO)
-      mat.map       = physicalMaterial.map       || null;
-      mat.normalMap = physicalMaterial.normalMap || null;
-      mat.aoMap     = physicalMaterial.aoMap     || null;
+      // Texture forwarding — wood: albedo+normal+AO, mat: basecolor+normal+
+      // metalness+roughness. We forward whichever ones are set; the rest
+      // stay null and the per-material scalars take over.
+      mat.map          = physicalMaterial.map          || null;
+      mat.normalMap    = physicalMaterial.normalMap    || null;
+      mat.metalnessMap = physicalMaterial.metalnessMap || null;
+      mat.roughnessMap = physicalMaterial.roughnessMap || null;
+      mat.aoMap        = physicalMaterial.aoMap        || null;
       mat.aoMapIntensity = physicalMaterial.aoMapIntensity ?? 0;
       if (mat.normalScale && physicalMaterial.normalScale) {
         mat.normalScale.copy(physicalMaterial.normalScale);
@@ -465,18 +451,67 @@ function applyMaterialPreset(presetKey) {
   physicalMaterial.color.set(preset.color);
   physicalMaterial.transparent  = preset.transmission > 0;
 
-  // ── Textured presets (wood family) ────────────────────────────────────
-  // If the preset opts in, swap albedo + normal + AO onto physicalMaterial.
-  // Otherwise null all three out so other presets render flat-colour.
-  const useTex = !!preset.useWoodTextures;
-  physicalMaterial.map       = useTex ? (woodTextures.albedo || null) : null;
-  physicalMaterial.normalMap = useTex ? (woodTextures.normal || null) : null;
-  physicalMaterial.aoMap     = useTex ? (woodTextures.ao     || null) : null;
-  if (physicalMaterial.normalScale) {
-    const on = useTex && woodTextures.normal;
-    physicalMaterial.normalScale.set(on ? 1 : 0, on ? 1 : 0);
+  // ── Textured presets (wood + Mat Works PBR sets) ──────────────────────
+  // Three branches:
+  //   1. useWoodTextures → eagerly-loaded albedo / normal / AO from
+  //      /textures/wood/.
+  //   2. mat: '<Name>'  → lazy-loaded basecolor / metallic / normal /
+  //      roughness from /textures/mats/<Name>/, downloaded on first use
+  //      and cached for the session.
+  //   3. neither       → flat-colour preset, all maps cleared.
+  const useWood = !!preset.useWoodTextures;
+  const useMat  = !!preset.mat;
+
+  if (useWood) {
+    physicalMaterial.map          = woodTextures.albedo || null;
+    physicalMaterial.normalMap    = woodTextures.normal || null;
+    physicalMaterial.aoMap        = woodTextures.ao     || null;
+    physicalMaterial.metalnessMap = null;
+    physicalMaterial.roughnessMap = null;
+    physicalMaterial.aoMapIntensity = 1.0;
+    if (physicalMaterial.normalScale) {
+      const on = !!woodTextures.normal;
+      physicalMaterial.normalScale.set(on ? 1 : 0, on ? 1 : 0);
+    }
+  } else if (useMat) {
+    // Clear any prior maps immediately so the UI shows the flat preset
+    // colour while the new PBR set streams in.
+    physicalMaterial.map          = null;
+    physicalMaterial.normalMap    = null;
+    physicalMaterial.metalnessMap = null;
+    physicalMaterial.roughnessMap = null;
+    physicalMaterial.aoMap        = null;
+    physicalMaterial.aoMapIntensity = 0.0;
+    if (physicalMaterial.normalScale) physicalMaterial.normalScale.set(1, 1);
+    physicalMaterial.needsUpdate = true;
+    updateVoxelMaterials();
+
+    // Lazy-load + apply, then bail out if user already switched to another preset.
+    getMatTextures(preset.mat).then((tex) => {
+      if (materialPreset.value !== presetKey) return;
+      physicalMaterial.map          = tex.basecolor || null;
+      physicalMaterial.normalMap    = tex.normal    || null;
+      physicalMaterial.metalnessMap = tex.metallic  || null;
+      physicalMaterial.roughnessMap = tex.roughness || null;
+      physicalMaterial.aoMap        = null;
+      physicalMaterial.aoMapIntensity = 0.0;
+      if (physicalMaterial.normalScale) {
+        const on = !!tex.normal;
+        physicalMaterial.normalScale.set(on ? 1 : 0, on ? 1 : 0);
+      }
+      physicalMaterial.needsUpdate = true;
+      updateVoxelMaterials();
+    });
+    return; // updateVoxelMaterials() will fire again after the async swap
+  } else {
+    physicalMaterial.map          = null;
+    physicalMaterial.normalMap    = null;
+    physicalMaterial.metalnessMap = null;
+    physicalMaterial.roughnessMap = null;
+    physicalMaterial.aoMap        = null;
+    physicalMaterial.aoMapIntensity = 0.0;
+    if (physicalMaterial.normalScale) physicalMaterial.normalScale.set(0, 0);
   }
-  physicalMaterial.aoMapIntensity = useTex ? 1.0 : 0.0;
 
   // ── Extended PBR (Clearcoat / Sheen / Iridescence) ─────────────────────
   const cc  = preset.clearcoat   ?? 0;
@@ -2867,7 +2902,17 @@ function applyPreset(presetKey) {
   physicalMaterial.transmission = config.transmission;
   physicalMaterial.thickness = config.thickness;
   physicalMaterial.ior = config.ior;
-  
+
+  // Clear any active PBR/wood textures so the preset card's flat-colour
+  // look isn't masked by a leftover albedo / normal map.
+  physicalMaterial.map          = null;
+  physicalMaterial.normalMap    = null;
+  physicalMaterial.metalnessMap = null;
+  physicalMaterial.roughnessMap = null;
+  physicalMaterial.aoMap        = null;
+  physicalMaterial.aoMapIntensity = 0;
+  if (physicalMaterial.normalScale) physicalMaterial.normalScale.set(0, 0);
+
   // Set transparent state correctly based on transmission
   physicalMaterial.transparent = config.transmission > 0;
   physicalMaterial.needsUpdate = true;

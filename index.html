@@ -104,18 +104,35 @@
                 <h3>Material Config</h3>
               </div>
               <div class="control-group-content">
-                <!-- Material Preset (organized by category) -->
+                <!-- Material Preset (8 categories · 50+ PBR sets, lazy-loaded) -->
                 <div class="control-row">
                   <label for="material-preset">Material Preset</label>
                   <select id="material-preset" class="form-select">
-                    <optgroup label="Plastic & Polymer">
+                    <optgroup label="Plastic &amp; Polymer">
                       <option value="plastic" selected>Plastic (塑料)</option>
+                      <option value="plastic-rough">Rough Plastic (粗糙塑料)</option>
+                      <option value="plastic-ultra-rough">Ultra-Rough Plastic (极粗塑料)</option>
                       <option value="plastic-glossy">Glossy Plastic (亮塑)</option>
-                      <option value="rubber">Rubber (橡胶)</option>
+                      <option value="plastic-industrial">Industrial Plastic (工业塑料)</option>
+                      <option value="plastic-half-matte">Half-Matte Plastic (半哑光塑料)</option>
+                      <option value="plastic-checkered">Checkered Plastic (格纹塑料)</option>
+                      <option value="plastic-translucent">Translucent Plastic (半透塑料)</option>
+                      <option value="foam">Hard Foam (硬质泡沫)</option>
                       <option value="wax">Wax (蜡)</option>
                     </optgroup>
-                    <optgroup label="Glass & Crystal">
+                    <optgroup label="Rubber &amp; Soft">
+                      <option value="rubber">Rubber (橡胶)</option>
+                      <option value="rubber-mat">Rubber Mat (橡胶垫)</option>
+                      <option value="rubber-mat-translucent">Translucent Rubber Mat (半透橡胶垫)</option>
+                      <option value="rubber-diamond">Diamond Rubber (菱形橡胶)</option>
+                      <option value="rubber-indented">Indented Rubber (凹纹橡胶)</option>
+                      <option value="rubber-perforated">Perforated Rubber (穿孔橡胶)</option>
+                      <option value="rubber-tyre">Rubber Tyre (轮胎)</option>
+                    </optgroup>
+                    <optgroup label="Glass &amp; Crystal">
                       <option value="frosted-glass">Frosted Glass (磨砂玻璃)</option>
+                      <option value="canopy-glass">Canopy Glass (舱罩玻璃)</option>
+                      <option value="matte-screen">Matte Screen (哑光屏)</option>
                       <option value="crystal">Crystal (水晶)</option>
                       <option value="ice">Ice (冰)</option>
                       <option value="ruby">Ruby (红宝石)</option>
@@ -124,11 +141,45 @@
                       <option value="honey">Honey (蜂蜜)</option>
                     </optgroup>
                     <optgroup label="Metal">
-                      <option value="metal">Polished Silver (抛光银)</option>
-                      <option value="brushed-steel">Brushed Steel (拉丝钢)</option>
-                      <option value="gold">Gold (黄金)</option>
+                      <option value="al-polished">Polished Aluminium (抛光铝)</option>
+                      <option value="al-brushed">Brushed Aluminium (拉丝铝)</option>
+                      <option value="al-lc">LC Aluminium (低光铝)</option>
+                      <option value="metal-basic">Basic Metal (素金属)</option>
+                      <option value="metal-white">White Metal (白金属)</option>
+                      <option value="steel-brushed">Brushed Steel (拉丝钢)</option>
+                      <option value="steel-machined">Machined Steel (机加工钢)</option>
+                      <option value="steel-hex">Hex Steel (六角钢)</option>
+                      <option value="steel-graphite">Graphite Steel (石墨钢)</option>
+                      <option value="steel-midnight">Midnight Steel (深夜钢)</option>
+                      <option value="steel-camo">Camo Steel (迷彩钢)</option>
+                      <option value="steel-powder">Powder-Coated Steel (粉末涂层钢)</option>
+                      <option value="steel-grainy">Coated Grainy Steel (颗粒涂层钢)</option>
+                      <option value="titanium-coated">Coated Titanium (涂层钛)</option>
+                      <option value="titanium-cyber">Cyber Titanium (赛博钛)</option>
                       <option value="copper">Copper (紫铜)</option>
+                      <option value="gold">Gold (黄金)</option>
                       <option value="chrome-plated">Chrome Plating (电镀铬)</option>
+                    </optgroup>
+                    <optgroup label="Carbon Composite">
+                      <option value="carbon-fiber">Carbon Fiber (碳纤维)</option>
+                      <option value="carbon-fiber-coated">Coated Carbon Fiber (涂层碳纤维)</option>
+                    </optgroup>
+                    <optgroup label="Fabric &amp; Cable">
+                      <option value="leather-black">Black Leather (黑皮革)</option>
+                      <option value="fabric-military">Military Fabric (军用织物)</option>
+                      <option value="cable-fabric">Braided Cable / Fabric (编织线缆 · 布)</option>
+                      <option value="cable-steel">Braided Cable / Steel (编织线缆 · 钢)</option>
+                      <option value="velcro">Velcro (魔术贴)</option>
+                      <option value="hook-loop">Hook &amp; Loop (毛刺面)</option>
+                    </optgroup>
+                    <optgroup label="Industrial / Patterns">
+                      <option value="floor-composite">Composite Floor (复合地板)</option>
+                      <option value="scales-composite">Composite Scales (复合鳞片)</option>
+                      <option value="floor-dotted">Dotted Steel Floor (点纹钢地板)</option>
+                      <option value="net-dotted">Dotted Steel Net (点纹钢网)</option>
+                      <option value="floor-steel-1">Steel Floor 1 (钢地板 1)</option>
+                      <option value="floor-steel-2">Steel Floor 2 (钢地板 2)</option>
+                      <option value="scales-steel">Steel Scales (钢鳞片)</option>
                     </optgroup>
                     <optgroup label="Stone, Wood &amp; Ceramic">
                       <option value="terracotta">Terracotta (陶土)</option>
