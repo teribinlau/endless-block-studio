@@ -188,9 +188,62 @@ const physicalMaterial = new THREE.MeshPhysicalMaterial({
   depthWrite: true,
 });
 
+// ─── Wood texture cache ─────────────────────────────────────────────────
+// Loaded once at startup; presets reference these via the `texture` field
+// in materialPresets. Anything that fails to load (e.g. user hasn't placed
+// the file yet) silently stays `null`, and the preset falls back to its
+// flat base colour. Diffuse maps are sRGB; the normal map is linear RGB.
+const woodTextureLoader = new THREE.TextureLoader();
+const woodTextures = {
+  normal: null,
+  oak: null,
+  whiteGrain: null,
+  tanPlank: null,
+  whitePlank: null,
+};
+
+function loadWoodTexture(url, sRGB = true) {
+  return new Promise((resolve) => {
+    woodTextureLoader.load(
+      url,
+      (tex) => {
+        if (sRGB) tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = 4;
+        resolve(tex);
+      },
+      undefined,
+      () => resolve(null) // 404 / decode error → null, preset falls back to colour
+    );
+  });
+}
+
+(async function loadWoodTextures() {
+  const base = '/textures/wood';
+  const [normal, oak, whiteGrain, tanPlank, whitePlank] = await Promise.all([
+    loadWoodTexture(`${base}/wood_normal.jpg`, /*sRGB*/ false),
+    loadWoodTexture(`${base}/wood_oak.jpg`),
+    loadWoodTexture(`${base}/wood_white_grain.jpg`),
+    loadWoodTexture(`${base}/wood_tan_plank.jpg`),
+    loadWoodTexture(`${base}/wood_white_plank.jpg`),
+  ]);
+  woodTextures.normal     = normal;
+  woodTextures.oak        = oak;
+  woodTextures.whiteGrain = whiteGrain;
+  woodTextures.tanPlank   = tanPlank;
+  woodTextures.whitePlank = whitePlank;
+  // If the wood preset is currently active, hot-swap the textures onto it.
+  if (materialPreset && (materialPreset.value || '').startsWith('wood')) {
+    applyMaterialPreset(materialPreset.value);
+  }
+})();
+
 // Material Presets — extended catalogue. Every preset specifies the full
 // set of properties driven by Material Config + Advanced sliders. Missing
-// extended props (clearcoat / sheen / iridescence) default to 0.
+// extended props (clearcoat / sheen / iridescence) default to 0. Presets
+// with a `texture` field will swap in diffuse + normal maps from the wood
+// texture cache when applied.
 const materialPresets = {
   // ── Plastic & Polymer ────────────────────────────────────────────────
   plastic: {
@@ -313,12 +366,32 @@ const materialPresets = {
     color: '#f5f0e8'
   },
   wood: {
-    // Natural matte wood — high roughness, warm brown base, and a thin
-    // clearcoat hinting at an oiled finish (without making it look lacquered).
-    roughness: 0.85, metalness: 0.00,
+    // Natural oak — warm brown end-grain diffuse + shared normal.
+    roughness: 0.80, metalness: 0.00,
     transmission: 0.00, thickness: 0.0, ior: 1.50,
     clearcoat: 0.15, sheen: 0.00, iridescence: 0.00,
-    color: '#8b5a2b'
+    color: '#ffffff', texture: 'oak'
+  },
+  'wood-white': {
+    // White-washed plank — bright planked diffuse on the same normal.
+    roughness: 0.78, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.12, sheen: 0.00, iridescence: 0.00,
+    color: '#ffffff', texture: 'whitePlank'
+  },
+  'wood-tan': {
+    // Light tan plank — softer, warmer than white.
+    roughness: 0.78, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.12, sheen: 0.00, iridescence: 0.00,
+    color: '#ffffff', texture: 'tanPlank'
+  },
+  'wood-end-white': {
+    // Cross-section "stump rings" — high-contrast white end-grain.
+    roughness: 0.82, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.10, sheen: 0.00, iridescence: 0.00,
+    color: '#ffffff', texture: 'whiteGrain'
   },
 
   // ── Special Optics ───────────────────────────────────────────────────
@@ -371,6 +444,12 @@ function updateVoxelMaterials() {
       mat.iridescence = physicalMaterial.iridescence;
       mat.iridescenceIOR = physicalMaterial.iridescenceIOR;
       mat.iridescenceThicknessRange = physicalMaterial.iridescenceThicknessRange;
+      // Wood-family texture forwarding
+      mat.map       = physicalMaterial.map       || null;
+      mat.normalMap = physicalMaterial.normalMap || null;
+      if (mat.normalScale && physicalMaterial.normalScale) {
+        mat.normalScale.copy(physicalMaterial.normalScale);
+      }
       mat.transparent = physicalMaterial.transmission > 0;
       mat.needsUpdate = true;
     }
@@ -405,6 +484,17 @@ function applyMaterialPreset(presetKey) {
   physicalMaterial.ior          = preset.ior;
   physicalMaterial.color.set(preset.color);
   physicalMaterial.transparent  = preset.transmission > 0;
+
+  // ── Textured presets (wood family) ────────────────────────────────────
+  // If the preset names a texture, swap diffuse + shared normal map onto
+  // physicalMaterial. Otherwise null them out so other presets render flat.
+  const diffuse = preset.texture ? woodTextures[preset.texture] : null;
+  const normal  = preset.texture ? woodTextures.normal          : null;
+  physicalMaterial.map       = diffuse || null;
+  physicalMaterial.normalMap = normal  || null;
+  if (physicalMaterial.normalScale) {
+    physicalMaterial.normalScale.set(normal ? 1 : 0, normal ? 1 : 0);
+  }
 
   // ── Extended PBR (Clearcoat / Sheen / Iridescence) ─────────────────────
   const cc  = preset.clearcoat   ?? 0;
