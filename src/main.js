@@ -474,14 +474,17 @@ function applyMaterialPreset(presetKey) {
       physicalMaterial.normalScale.set(on ? 1 : 0, on ? 1 : 0);
     }
   } else if (useMat) {
-    // Clear any prior maps immediately so the UI shows the flat preset
-    // colour while the new PBR set streams in.
+    // Clear any prior maps immediately. While the new PBR set streams in,
+    // use a safe matte-plastic fallback (metalness=0, roughness 0.8) so the
+    // brick doesn't flash as a black mirror.
     physicalMaterial.map          = null;
     physicalMaterial.normalMap    = null;
     physicalMaterial.metalnessMap = null;
     physicalMaterial.roughnessMap = null;
     physicalMaterial.aoMap        = null;
     physicalMaterial.aoMapIntensity = 0.0;
+    physicalMaterial.metalness    = preset.metalnessFallback ?? 0.0;
+    physicalMaterial.roughness    = preset.roughnessFallback ?? 0.8;
     if (physicalMaterial.normalScale) physicalMaterial.normalScale.set(1, 1);
     physicalMaterial.needsUpdate = true;
     updateVoxelMaterials();
@@ -495,6 +498,15 @@ function applyMaterialPreset(presetKey) {
       physicalMaterial.roughnessMap = tex.roughness || null;
       physicalMaterial.aoMap        = null;
       physicalMaterial.aoMapIntensity = 0.0;
+      // ── Scalar fallbacks when a map is missing ──────────────────────────
+      // metalnessMap absent → use preset's metalnessFallback (default 0,
+      //   so plastics / rubber / fabric don't render as 100 % metal mirror).
+      // roughnessMap absent → fall back to 0.8 (matte) so missing roughness
+      //   doesn't leave the surface mirror-smooth at metalness=1.
+      // When the map IS present, scalar=1 lets the per-pixel map values
+      // drive the look unchanged.
+      physicalMaterial.metalness = tex.metallic  ? 1.0 : (preset.metalnessFallback ?? 0.0);
+      physicalMaterial.roughness = tex.roughness ? 1.0 : (preset.roughnessFallback ?? 0.8);
       if (physicalMaterial.normalScale) {
         const on = !!tex.normal;
         physicalMaterial.normalScale.set(on ? 1 : 0, on ? 1 : 0);
