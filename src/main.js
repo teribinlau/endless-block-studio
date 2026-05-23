@@ -602,6 +602,7 @@ let dirLight, hemiLight, fillLight, rimLight, ambientLight, rectAreaLight;
 
 // TransformControls (translate / rotate / scale gizmo for the model)
 let transformControls = null;
+let transformHelper   = null; // r170+ — gizmo visual is a separate Object3D
 
 // Post-processing chain (created in setupPostFx())
 let composer = null;
@@ -684,12 +685,14 @@ async function init() {
     // so the brick grid matches the new pose.
     if (!e.value && blockMode.checked) updateBlockEffect();
   });
-  // r170+: the gizmo geometry lives in a separate helper object
-  const tcHelper = (typeof transformControls.getHelper === 'function')
+  // r170+: the gizmo geometry lives in a separate helper object; we must
+  // toggle the HELPER's visible, not the controls'. Older versions where
+  // TransformControls IS an Object3D fall back to using it directly.
+  transformHelper = (typeof transformControls.getHelper === 'function')
     ? transformControls.getHelper()
     : transformControls;
-  scene.add(tcHelper);
-  transformControls.visible = false; // hidden until user selects a mode
+  scene.add(transformHelper);
+  transformHelper.visible = false; // hidden until user selects a mode
 
   // Uncheck the auto-rotate checkbox to match the actual state
   animAutoRotate.checked = false;
@@ -1155,8 +1158,9 @@ function setupModelInScene(object) {
   // Re-attach the transform gizmo to the new model (if a mode is active)
   if (transformControls) {
     transformControls.attach(currentModel);
-    transformControls.visible = transformControls.mode &&
-      (transformGizmoMode === 'translate' || transformGizmoMode === 'rotate' || transformGizmoMode === 'scale');
+    if (transformHelper) {
+      transformHelper.visible = transformGizmoMode !== 'none';
+    }
   }
 }
 
@@ -1164,20 +1168,24 @@ function setupModelInScene(object) {
 let transformGizmoMode = 'none';
 
 /* Set the transform gizmo mode. 'none' hides it; the other three switch
-   the gizmo handles to translate / rotate / scale. */
+   the gizmo handles to translate / rotate / scale.
+   Note for r170+: visibility lives on the helper Object3D, NOT on the
+   TransformControls itself (which is no longer an Object3D). */
 function setTransformMode(mode) {
   transformGizmoMode = mode;
   if (!transformControls) return;
+
   if (mode === 'none') {
-    transformControls.visible = false;
+    if (transformHelper) transformHelper.visible = false;
     transformControls.enabled = false;
+    if (transformControls.detach) transformControls.detach();
   } else {
-    transformControls.setMode(mode);
-    transformControls.visible = true;
-    transformControls.enabled = true;
     if (currentModel && transformControls.object !== currentModel) {
       transformControls.attach(currentModel);
     }
+    transformControls.setMode(mode);
+    transformControls.enabled = true;
+    if (transformHelper) transformHelper.visible = true;
   }
   // Reflect the active button in the UI
   ['translate','rotate','scale','none'].forEach((m) => {
