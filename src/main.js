@@ -2660,26 +2660,29 @@ function hexToHSL(hex) {
 // --- Theme Toggle ---
 function toggleTheme() {
   const root = document.documentElement;
-  const isCurrentlyLight = root.getAttribute('data-theme') === 'light';
-  const newTheme = isCurrentlyLight ? 'dark' : 'light';
-  root.setAttribute('data-theme', newTheme);
+  const isCurrentlyDark = root.getAttribute('data-theme') === 'dark';
+  const newTheme = isCurrentlyDark ? 'light' : 'dark';
+  if (newTheme === 'dark') {
+    root.setAttribute('data-theme', 'dark');
+  } else {
+    root.removeAttribute('data-theme');
+  }
   localStorage.setItem('everything-lego-theme', newTheme);
 
-  // Swap background color to a theme-appropriate default
-  const newBgColor = newTheme === 'light' ? '#d8d8e2' : '#1a1a24';
+  // Swap 3D scene background to a theme-appropriate cream / ink default
+  const newBgColor = newTheme === 'light' ? '#fdfcfc' : '#201d1d';
   sceneBgColor.value = newBgColor;
   bgColorHex.textContent = newBgColor.toUpperCase();
 
-  // Update the 3D scene background to match the new theme
   updateSceneBackground();
 }
 
 function loadSavedTheme() {
   const saved = localStorage.getItem('everything-lego-theme');
-  if (saved === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
   }
-  // else: default dark, no attribute needed
+  // else: default light (cream OpenCode canvas), no attribute needed
 }
 
 // --- Step 5: Preset Implementation ---

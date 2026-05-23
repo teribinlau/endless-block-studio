@@ -1,75 +1,135 @@
-/* Reset & CSS variables — Dark theme (default) */
+/* ============================================================
+   OpenCode-inspired design system
+   ------------------------------------------------------------
+   100% monospace · warm cream canvas · near-black ink ·
+   0px container radius / 4px interactive radius ·
+   no shadows · no gradients · hairline dividers only.
+   ============================================================ */
+
+/* Light Theme (default — matches OpenCode marketing chrome) */
 :root {
-  --bg-color: #08080a;
-  --bg-gradient: radial-gradient(circle at top right, #181922 0%, #08080a 100%);
-  --sidebar-bg: rgba(13, 13, 17, 0.65);
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --text-main: #f3f4f6;
-  --text-muted: #9ca3af;
-  --text-dark: #4b5563;
-  --accent-color: #77ff00;
-  --accent-hover: #5ee600;
-  --accent-glow: rgba(119, 255, 0, 0.35);
-  --card-bg: rgba(255, 255, 255, 0.03);
-  --card-hover: rgba(255, 255, 255, 0.07);
-  --font-primary: 'Outfit', sans-serif;
-  --font-code: 'Space Grotesk', monospace;
-  --border-radius-lg: 16px;
-  --border-radius-md: 10px;
-  --border-radius-sm: 6px;
-  --sidebar-width: 320px;
-  --transition-speed: 0.25s;
-  /* Theme-specific tokens */
-  --header-bg: linear-gradient(to bottom, rgba(8, 8, 10, 0.8) 0%, rgba(8, 8, 10, 0) 100%);
-  --footer-bg: rgba(8, 8, 10, 0.9);
-  --loader-bg: #070709;
-  --select-option-bg: #1a1a22;
-  --select-option-color: #f3f4f6;
-  --range-track: rgba(255, 255, 255, 0.1);
-  --range-track-hover: rgba(255, 255, 255, 0.15);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
-  --input-bg: rgba(255, 255, 255, 0.03);
-  --badge-bg: rgba(255, 255, 255, 0.1);
-  --badge-border: rgba(255, 255, 255, 0.15);
-  --logo-gradient: linear-gradient(120deg, #ffffff, #888888);
-  --canvas-gradient-dark: radial-gradient(circle, #2d2d38 0%, #0d0d12 100%);
-  --canvas-gradient-light: radial-gradient(circle, #eeeef4 0%, #d4d4e0 100%);
-  --scene-gradient: var(--canvas-gradient-dark);
-  color-scheme: dark;
+  /* Brand & surface (OpenCode palette) */
+  --bg-color:        #fdfcfc;   /* canvas — warm cream */
+  --bg-gradient:     #fdfcfc;   /* no gradient — flat fill */
+  --surface-soft:    #f8f7f7;   /* input default fill, alt row */
+  --surface-card:    #f1eeee;   /* install snippet, disabled fill */
+  --surface-dark:    #201d1d;   /* dark CTA, terminal mockup */
+  --surface-dark-elev:#302c2c;
+
+  /* Text */
+  --text-main:       #201d1d;   /* ink — headlines & body */
+  --text-charcoal:   #302c2c;
+  --text-body:       #424245;
+  --text-muted:      #646262;   /* mute — metadata, tab labels */
+  --text-stone:      #6e6e73;
+  --text-dark:       #9a9898;   /* ash — disabled */
+
+  /* Sidebar / hairlines (no fills — just borders) */
+  --sidebar-bg:      #fdfcfc;
+  --sidebar-border:  rgba(15, 0, 0, 0.12);
+  --sidebar-border-strong: #646262;
+  --card-bg:         transparent;
+  --card-hover:      #f8f7f7;
+  --input-bg:        #f8f7f7;
+  --range-track:     #f1eeee;
+  --range-track-hover:#e7e3e3;
+  --scrollbar-thumb: rgba(15, 0, 0, 0.18);
+  --scrollbar-thumb-hover: #646262;
+
+  /* Accent — kept monochrome per OpenCode (ink = primary CTA) */
+  --accent-color:    #201d1d;
+  --accent-hover:    #0f0000;
+  --accent-glow:     transparent;
+
+  /* Semantic ramp (Apple HIG, reserved for in-app states) */
+  --semantic-info:    #007aff;
+  --semantic-success: #30d158;
+  --semantic-warning: #ff9f0a;
+  --semantic-danger:  #ff3b30;
+
+  /* Typography stack — JetBrains Mono is the closest open substitute
+     for Berkeley Mono per OpenCode's documented fallback guidance.    */
+  --font-primary: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-code:    var(--font-primary);
+
+  /* Radius — only two values in the entire system */
+  --border-radius-lg: 0px;     /* every container is a sharp rectangle */
+  --border-radius-md: 0px;
+  --border-radius-sm: 4px;     /* every interactive element */
+
+  /* Layout */
+  --sidebar-width:   320px;
+  --transition-speed: 0.18s;
+
+  /* Header / footer / loader */
+  --header-bg:       #fdfcfc;
+  --footer-bg:       #fdfcfc;
+  --loader-bg:       #fdfcfc;
+
+  /* Select options */
+  --select-option-bg:    #ffffff;
+  --select-option-color: #201d1d;
+
+  /* Badge */
+  --badge-bg:        #201d1d;
+  --badge-border:    #201d1d;
+
+  /* Logo (becomes plain ink — no gradient, OpenCode style) */
+  --logo-gradient:   linear-gradient(0deg, #201d1d, #201d1d);
+
+  /* Scene background gradient — kept for the 3D canvas only */
+  --canvas-gradient-dark:  radial-gradient(circle, #2d2d38 0%, #0d0d12 100%);
+  --canvas-gradient-light: radial-gradient(circle, #f8f7f7 0%, #e7e3e3 100%);
+  --scene-gradient: var(--canvas-gradient-light);
+
+  color-scheme: light;
 }
 
-/* ============================================
-   Light Theme
-   ============================================ */
-[data-theme="light"] {
-  --bg-color: #f0f1f5;
-  --bg-gradient: radial-gradient(circle at top right, #e0e2ea 0%, #f0f1f5 100%);
-  --sidebar-bg: rgba(255, 255, 255, 0.72);
-  --sidebar-border: rgba(0, 0, 0, 0.1);
-  --text-main: #1a1a2e;
-  --text-muted: #5c5c78;
-  --text-dark: #8888a0;
-  --accent-color: #2daf10;
-  --accent-hover: #24960c;
-  --accent-glow: rgba(45, 175, 16, 0.25);
-  --card-bg: rgba(0, 0, 0, 0.025);
-  --card-hover: rgba(0, 0, 0, 0.055);
-  --header-bg: linear-gradient(to bottom, rgba(240, 241, 245, 0.92) 0%, rgba(240, 241, 245, 0) 100%);
-  --footer-bg: rgba(240, 241, 245, 0.92);
-  --loader-bg: #eaebf0;
-  --select-option-bg: #ffffff;
-  --select-option-color: #1a1a2e;
-  --range-track: rgba(0, 0, 0, 0.1);
-  --range-track-hover: rgba(0, 0, 0, 0.16);
-  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
-  --input-bg: rgba(0, 0, 0, 0.04);
-  --badge-bg: rgba(0, 0, 0, 0.06);
-  --badge-border: rgba(0, 0, 0, 0.12);
-  --logo-gradient: linear-gradient(120deg, #1a1a2e, #555577);
-  --scene-gradient: var(--canvas-gradient-light);
-  color-scheme: light;
+/* Dark Theme — inverted OpenCode palette (TUI feel) */
+[data-theme="dark"] {
+  --bg-color:        #201d1d;
+  --bg-gradient:     #201d1d;
+  --surface-soft:    #302c2c;
+  --surface-card:    #3a3636;
+  --surface-dark:    #fdfcfc;
+  --surface-dark-elev:#f1eeee;
+
+  --text-main:       #fdfcfc;
+  --text-charcoal:   #f1eeee;
+  --text-body:       #d8d4d4;
+  --text-muted:      #9a9898;
+  --text-stone:      #807c7c;
+  --text-dark:       #646262;
+
+  --sidebar-bg:      #201d1d;
+  --sidebar-border:  rgba(253, 252, 252, 0.14);
+  --sidebar-border-strong: #9a9898;
+  --card-bg:         transparent;
+  --card-hover:      #302c2c;
+  --input-bg:        #302c2c;
+  --range-track:     #302c2c;
+  --range-track-hover:#403a3a;
+  --scrollbar-thumb: rgba(253, 252, 252, 0.18);
+  --scrollbar-thumb-hover: #9a9898;
+
+  --accent-color:    #fdfcfc;
+  --accent-hover:    #f1eeee;
+  --accent-glow:     transparent;
+
+  --header-bg:       #201d1d;
+  --footer-bg:       #201d1d;
+  --loader-bg:       #201d1d;
+
+  --select-option-bg:    #302c2c;
+  --select-option-color: #fdfcfc;
+
+  --badge-bg:        #fdfcfc;
+  --badge-border:    #fdfcfc;
+
+  --logo-gradient:   linear-gradient(0deg, #fdfcfc, #fdfcfc);
+  --scene-gradient:  var(--canvas-gradient-dark);
+
+  color-scheme: dark;
 }
 
 * {
@@ -976,11 +1036,13 @@ input[type="checkbox"]:checked::after {
   height: 18px;
 }
 
-/* Show/hide sun and moon icons based on theme */
-.icon-sun { display: block; }
-.icon-moon { display: none; }
-[data-theme="light"] .icon-sun { display: none; }
-[data-theme="light"] .icon-moon { display: block; }
+/* Show/hide sun and moon icons based on theme.
+   Default (no attribute) = light theme → show moon (click to go dark).
+   [data-theme="dark"]    = dark theme  → show sun  (click to go light). */
+.icon-sun  { display: none; }
+.icon-moon { display: block; }
+[data-theme="dark"] .icon-sun  { display: block; }
+[data-theme="dark"] .icon-moon { display: none; }
 
 /* ============================================
    Responsive Grid Adjustments
@@ -1083,4 +1145,338 @@ input[type="checkbox"]:checked::after {
     height: 36px;
     min-height: 36px;
   }
+}
+
+/* ============================================================================
+   OpenCode design override layer
+   ----------------------------------------------------------------------------
+   Neutralises the inherited glassy / glow / gradient treatments and rebuilds
+   the surfaces in OpenCode's flat, mono, hairline-only language. This block
+   sits last so it wins specificity over the legacy rules above without us
+   having to rewrite the entire 1100-line file.
+   ============================================================================ */
+
+/* 1. Typography — every text role goes monospace */
+body, h1, h2, h3, h4, h5, h6,
+button, input, select, textarea,
+label, span, p, div, a {
+  font-family: var(--font-primary);
+  letter-spacing: 0;
+}
+
+/* 2. Kill all shadows / glows / blurs / backdrop filters */
+.header, .footer, .sidebar,
+.control-group, .control-group-content,
+.canvas-2d, .canvas-2d-empty,
+.preset-card, .preset-preview,
+.upload-zone, .media-info-wrapper,
+.info-panel, .loader-content,
+.modal, .badge,
+.btn, .form-select, select,
+input[type="range"]::-webkit-slider-thumb,
+input[type="range"]::-moz-range-thumb,
+.video-export-bar, .video-export-bar-fill,
+.color-picker-wrapper, .hint-2d,
+.logo-dot {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 3. Background fills — flat colours, no gradients */
+body {
+  background: var(--bg-color) !important;
+  color: var(--text-main);
+}
+.header {
+  background: var(--header-bg) !important;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+.sidebar {
+  background: var(--sidebar-bg) !important;
+}
+.sidebar-left  { border-right: 1px solid var(--sidebar-border); }
+.sidebar-right { border-left:  1px solid var(--sidebar-border); }
+.footer {
+  background: var(--footer-bg) !important;
+  border-top: 1px solid var(--sidebar-border);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.loading-overlay {
+  background: var(--loader-bg) !important;
+}
+
+/* 4. Containers → 0 radius, interactive elements → 4 px */
+.header, .footer, .sidebar,
+.control-group, .control-group-content,
+.upload-zone, .media-info-wrapper,
+.info-panel, .canvas-2d-empty,
+.video-export-row {
+  border-radius: 0 !important;
+}
+.btn, .form-select, select,
+input[type="text"], input[type="number"], input[type="color"],
+.preset-card, .badge,
+.canvas-2d, .control-divider,
+.video-export-bar, .video-export-bar-fill {
+  border-radius: 4px !important;
+}
+
+/* 5. Control groups — hairline-separated text blocks (no card chrome) */
+.control-group {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--sidebar-border) !important;
+  margin: 0 !important;
+}
+.control-group:last-child { border-bottom: none !important; }
+
+.control-group-header h3 {
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+/* ASCII bracket markers replace icons / chevrons */
+.control-group .control-group-header h3::before {
+  content: "[+] ";
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.control-group.expanded .control-group-header h3::before {
+  content: "[-] ";
+}
+
+/* 6. Buttons — ink primary, hairline secondary */
+.btn-primary {
+  background: var(--accent-color) !important;
+  color: var(--bg-color) !important;
+  border: 1px solid var(--accent-color) !important;
+  font-weight: 500;
+}
+.btn-primary:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+.btn-secondary {
+  background: transparent !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--sidebar-border-strong) !important;
+  font-weight: 500;
+}
+.btn-secondary:hover {
+  background: var(--card-hover) !important;
+}
+
+/* 7. Logo wordmark — solid ink, no gradient fill */
+.header-left h1 {
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: var(--text-main) !important;
+  color: var(--text-main) !important;
+  font-family: var(--font-primary);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 0.95rem;
+}
+.logo-dot {
+  background: var(--accent-color) !important;
+  border-radius: 2px !important; /* hint of brick block, not a circle */
+}
+
+/* 8. Preset cards — flat hairline tiles */
+.preset-card {
+  background: transparent !important;
+  border: 1px solid var(--sidebar-border) !important;
+  color: var(--text-main) !important;
+}
+.preset-card:hover {
+  background: var(--card-hover) !important;
+}
+.preset-card.active {
+  background: var(--accent-color) !important;
+  border-color: var(--accent-color) !important;
+  color: var(--bg-color) !important;
+}
+
+/* 9. Form controls — flat, hairline */
+.form-select, select,
+input[type="text"], input[type="number"] {
+  background: var(--input-bg) !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--sidebar-border) !important;
+}
+.form-select:focus, select:focus,
+input[type="text"]:focus, input[type="number"]:focus {
+  border-color: var(--text-main) !important;
+  background: var(--bg-color) !important;
+  outline: none;
+}
+
+/* 10. Range sliders — flat track, ink thumb */
+input[type="range"] {
+  background: transparent !important;
+  -webkit-appearance: none;
+  height: 4px;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  background: var(--range-track) !important;
+  height: 4px;
+  border-radius: 4px !important;
+}
+input[type="range"]::-moz-range-track {
+  background: var(--range-track) !important;
+  height: 4px;
+  border-radius: 4px !important;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: var(--accent-color) !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50% !important;
+  margin-top: -5px;
+  border: none;
+}
+input[type="range"]::-moz-range-thumb {
+  background: var(--accent-color) !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50% !important;
+  border: none;
+}
+
+/* 11. Labels / values — caption mono */
+.control-row label,
+.label-with-val span,
+.info-row span,
+.shortcut-tip {
+  font-family: var(--font-primary);
+  font-size: 0.74rem;
+  letter-spacing: 0;
+  color: var(--text-body);
+}
+.label-with-val span {
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+/* 12. Badge — inverted block, mono caption */
+.badge {
+  background: var(--badge-bg) !important;
+  color: var(--bg-color) !important;
+  border: 1px solid var(--badge-border) !important;
+  font-size: 0.60rem !important;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px !important;
+  border-radius: 4px !important;
+}
+
+/* 13. View-mode pill (2D / 3D toggle) — keep pill but flatten */
+.view-mode-toggle {
+  background: var(--input-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 999px !important;
+}
+.view-mode-toggle .mode-btn {
+  font-family: var(--font-primary);
+  font-weight: 500;
+}
+.view-mode-toggle .mode-btn.active {
+  background: var(--accent-color) !important;
+  color: var(--bg-color) !important;
+}
+
+/* 14. Upload zones — hairline dashed rectangle */
+.upload-zone {
+  background: transparent !important;
+  border: 1px dashed var(--sidebar-border-strong) !important;
+  border-radius: 0 !important;
+}
+.upload-zone:hover {
+  background: var(--card-hover) !important;
+  border-color: var(--text-main) !important;
+}
+.upload-text {
+  font-family: var(--font-primary);
+  color: var(--text-main);
+  font-weight: 500;
+}
+.upload-hint {
+  font-family: var(--font-primary);
+  color: var(--text-muted);
+  font-size: 0.70rem;
+}
+
+/* 15. Canvas 2D empty state */
+.canvas-2d-empty {
+  background: var(--bg-color);
+  color: var(--text-muted);
+}
+.canvas-2d-empty .empty-icon {
+  color: var(--text-main);
+  opacity: 1;
+  font-family: var(--font-primary);
+  font-weight: 700;
+}
+
+/* 16. Sub-section divider in Material Config Advanced */
+.control-divider {
+  font-family: var(--font-primary);
+  color: var(--text-muted);
+  border-top: 1px solid var(--sidebar-border);
+  border-radius: 0 !important;
+  background: transparent;
+}
+.control-divider::before { content: "── "; color: var(--text-muted); }
+
+/* 17. Info panel rows — hairline-separated */
+.info-row {
+  border-bottom: 1px dashed var(--sidebar-border);
+  padding: 6px 0;
+}
+.info-row:last-of-type { border-bottom: none; }
+.shortcut-tip {
+  color: var(--text-muted);
+  padding-top: 8px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+/* 18. Hint chip (e.g. "2D" tag) — bracketed ASCII style */
+.hint-2d {
+  background: transparent !important;
+  color: var(--text-muted) !important;
+  border: 1px solid var(--sidebar-border) !important;
+  border-radius: 4px !important;
+  text-transform: lowercase;
+  font-family: var(--font-primary);
+  font-weight: 500;
+}
+.hint-2d::before { content: "["; }
+.hint-2d::after  { content: "]"; }
+
+/* 19. Project title chip — hairline pill */
+.project-title {
+  background: transparent !important;
+  border: 1px solid var(--sidebar-border) !important;
+  color: var(--text-muted) !important;
+  border-radius: 4px !important;
+  font-family: var(--font-primary);
+  font-size: 0.74rem !important;
+}
+
+/* 20. Scrollbar */
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 0;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
