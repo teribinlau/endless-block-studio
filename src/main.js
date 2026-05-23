@@ -681,9 +681,13 @@ async function init() {
     // Suspend orbit drag while the gizmo is grabbed so the camera doesn't
     // fight the manipulation.
     controls.enabled = !e.value;
-    // When the user releases the gizmo, re-voxelise (if Block Mode is on)
-    // so the brick grid matches the new pose.
-    if (!e.value && blockMode.checked) updateBlockEffect();
+    if (!e.value) {
+      // Re-aim OrbitControls at the new model centre so subsequent orbit
+      // rotates around the model, not around the original world origin.
+      focusOrbitTarget();
+      // Re-voxelise if Block Mode is on so the brick grid matches new pose.
+      if (blockMode.checked) updateBlockEffect();
+    }
   });
   // r170+: the gizmo geometry lives in a separate helper object; we must
   // toggle the HELPER's visible, not the controls'. Older versions where
@@ -1162,6 +1166,9 @@ function setupModelInScene(object) {
       transformHelper.visible = transformGizmoMode !== 'none';
     }
   }
+  // Re-aim OrbitControls at the new model so orbiting feels right
+  // even if a previous model left the target somewhere else.
+  focusOrbitTarget();
 }
 
 // Tracks which manipulation mode is active (controls gizmo visibility)
@@ -1219,6 +1226,48 @@ function snapModelToFloor() {
   const box = new THREE.Box3().setFromObject(currentModel);
   if (!isFinite(box.min.y)) return;
   currentModel.position.y -= box.min.y;
+  focusOrbitTarget();
+}
+
+/* Re-aim OrbitControls at the live model's bounding-box centre. Cheap
+   helper called after every action that translates / rotates / scales
+   currentModel — so the orbit pivot keeps matching the geometry instead
+   of being stuck at world (0,0,0). */
+function focusOrbitTarget() {
+  if (!currentModel || !controls) return;
+  currentModel.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(currentModel);
+  if (box.isEmpty()) return;
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  controls.target.copy(center);
+  controls.update();
+}
+
+/* Full "frame model" — recompute orbit target AND pull/push the camera
+   to a distance that fits the model in view. Triggered by the Focus on
+   Model button. */
+function frameCameraOnModel() {
+  if (!currentModel || !controls || !camera) return;
+  currentModel.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(currentModel);
+  if (box.isEmpty()) return;
+  const center = new THREE.Vector3();
+  const size   = new THREE.Vector3();
+  box.getCenter(center);
+  box.getSize(size);
+
+  controls.target.copy(center);
+
+  // Distance so the largest model dimension comfortably fits the FOV
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const fovRad = camera.fov * Math.PI / 180;
+  const dist   = (maxDim / (2 * Math.tan(fovRad / 2))) * 1.6;
+  // Slight elevated 3/4 view — common "hero" angle
+  const offset = new THREE.Vector3(0.55, 0.45, 1).normalize().multiplyScalar(dist);
+  camera.position.copy(center).add(offset);
+  camera.lookAt(center);
+  controls.update();
 }
 
 /* Reset all transform state on currentModel back to identity. */
@@ -1233,6 +1282,7 @@ function resetModelTransform() {
   const center = new THREE.Vector3();
   box.getCenter(center);
   currentModel.position.sub(center);
+  focusOrbitTarget();
   if (blockMode.checked) updateBlockEffect();
 }
 
@@ -1678,6 +1728,8 @@ function setupUIEventListeners() {
     if (blockMode.checked) updateBlockEffect();
   });
   if (btnResetXf)   btnResetXf.addEventListener('click',   resetModelTransform);
+  const btnFocusModel = document.getElementById('tf-focus');
+  if (btnFocusModel) btnFocusModel.addEventListener('click', frameCameraOnModel);
 
   // 0a. Pan + Zoom for the 2D Lego-filter canvas
   // ---------------------------------------------
