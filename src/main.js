@@ -589,8 +589,8 @@ function loadDefaultModel() {
       const targetScale = 0.069357 * parseFloat(modelScale.value);
       currentModel.scale.set(targetScale, targetScale, targetScale);
 
-      // Load default heightmap as initial startup view
-      loadDefaultHeightmap();
+      // Load default sample video as initial startup view
+      loadDefaultSample();
     },
     (xhr) => {
       if (xhr.total > 0) {
@@ -605,7 +605,7 @@ function loadDefaultModel() {
       loaderProgress.textContent = 'Loading failed. Use custom upload!';
       // Show default placeholder shape (TorusKnot) if the fbx failed to load
       createPlaceholderShape();
-      loadDefaultHeightmap();
+      loadDefaultSample();
     }
   );
 }
@@ -1505,9 +1505,9 @@ function debouncedTriggerBlockUpdate() {
 }
 
 // Loads the default heightmap image on startup
-function loadDefaultHeightmap() {
-  loaderProgress.textContent = 'Loading heightmap...';
-  
+function loadDefaultSample() {
+  loaderProgress.textContent = 'Loading sample video...';
+
   // Reset media state
   isMediaLoaded = false;
   mediaAspect = 1.0;
@@ -1519,56 +1519,60 @@ function loadDefaultHeightmap() {
     }
     loadedMediaElement = null;
   }
-  
   if (loadedMediaTexture) {
     loadedMediaTexture.dispose();
     loadedMediaTexture = null;
   }
 
-  loadedMediaType = 'image';
-  mediaTypeBadge.textContent = 'IMAGE';
-  mediaVideoControls.style.display = 'none';
-  
-  const img = new Image();
-  img.src = '/default-heightmap.png';
-  img.onload = () => {
-    loadedMediaElement = img;
+  // Default sample is now a looping video (replaces the static heightmap PNG)
+  loadedMediaType = 'video';
+  mediaTypeBadge.textContent = 'VIDEO';
+  mediaVideoControls.style.display = 'flex';
+  btnVideoPlay.textContent = 'Pause';
+  btnVideoMute.textContent  = 'Unmute'; // muted by default
+
+  const video = document.createElement('video');
+  video.src = '/default-sample.mp4';
+  video.autoplay = true;
+  video.loop     = true;
+  video.muted    = true;
+  video.playsInline  = true;
+  video.crossOrigin  = 'anonymous';
+
+  video.onloadeddata = () => {
+    loadedMediaElement = video;
     isMediaLoaded = true;
-    
-    // Create Texture
-    loadedMediaTexture = new THREE.Texture(img);
+
+    // Create video texture
+    loadedMediaTexture = new THREE.VideoTexture(video);
     loadedMediaTexture.colorSpace = THREE.SRGBColorSpace;
-    loadedMediaTexture.needsUpdate = true;
-    
-    // Setup offscreen canvas size to match image (cap to 256 for speed)
-    const size = Math.min(256, Math.max(img.width, img.height));
-    const aspect = img.width / img.height;
-    mediaAspect = aspect;
-    samplingCanvas.width = aspect >= 1 ? size : size * aspect;
+
+    // Setup sampling canvas (cap to 128 for real-time per-frame reads)
+    const size   = 128;
+    const aspect = video.videoWidth / video.videoHeight;
+    mediaAspect  = aspect;
+    samplingCanvas.width  = aspect >= 1 ? size : size * aspect;
     samplingCanvas.height = aspect >= 1 ? size / aspect : size;
-    
-    // Draw image to sample canvas once
-    samplingCtx.drawImage(img, 0, 0, samplingCanvas.width, samplingCanvas.height);
-    samplingData = samplingCtx.getImageData(0, 0, samplingCanvas.width, samplingCanvas.height);
-    
-    // Draw preview canvas
-    mediaPreviewCanvas.width = 60;
-    mediaPreviewCanvas.height = 60;
-    mediaPreviewCtx.drawImage(img, 0, 0, 60, 60);
 
-    // Show status bar and set filename
+    // Preview & filename in sidebar
     mediaInfoWrapper.style.display = 'block';
-    mediaFilename.textContent = 'default-heightmap.png';
+    mediaFilename.textContent = 'cat girls.mp4';
+    mediaPreviewCanvas.width  = 60;
+    mediaPreviewCanvas.height = 60;
+    // First frame to preview (drawImage works as soon as loadeddata fires)
+    try { mediaPreviewCtx.drawImage(video, 0, 0, 60, 60); } catch (_) { /* ignore */ }
 
-    // Uploaded image becomes the scene's primary subject — auto-switch to heightmap.
+    video.play().catch(() => { /* autoplay policy fallback */ });
+
+    // Auto-route to heightmap so the scene shows the video-driven voxel grid
     mediaMapping.value = 'heightmap';
     applyMediaMapping();
     resetCameraPosition();
-    
+    showVideoExportUIIfApplicable(); // reveal video export controls
     showLoader(false);
   };
-  img.onerror = (err) => {
-    console.error('Error loading default heightmap image:', err);
+  video.onerror = (err) => {
+    console.error('Error loading default sample video:', err);
     showLoader(false);
   };
 }
