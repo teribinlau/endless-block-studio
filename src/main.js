@@ -9,6 +9,14 @@ import { ThreeMFLoader } from 'three/examples/jsm/loaders/3MFLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass }     from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { OutputPass }     from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutlinePass }     from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { GTAOPass }        from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // --- State Variables ---
@@ -95,6 +103,27 @@ const lightZ = document.getElementById('light-z');
 const valLightZ = document.getElementById('val-light-z');
 const hemiIntensity = document.getElementById('hemi-intensity');
 const valHemiIntensity = document.getElementById('val-hemi-intensity');
+// Softbox / RectAreaLight
+const rectPower    = document.getElementById('rect-power');
+const valRectPower = document.getElementById('val-rect-power');
+const rectSize     = document.getElementById('rect-size');
+const valRectSize  = document.getElementById('val-rect-size');
+// Post FX
+const fxBloom            = document.getElementById('fx-bloom');
+const fxBloomStrength    = document.getElementById('fx-bloom-strength');
+const valFxBloomStrength = document.getElementById('val-fx-bloom-strength');
+const fxBloomThreshold   = document.getElementById('fx-bloom-threshold');
+const valFxBloomThreshold= document.getElementById('val-fx-bloom-threshold');
+const fxOutline          = document.getElementById('fx-outline');
+const fxOutlineStrength  = document.getElementById('fx-outline-strength');
+const valFxOutlineStrength=document.getElementById('val-fx-outline-strength');
+const fxGtao             = document.getElementById('fx-gtao');
+// Voxel geom
+const voxelGeomSelect  = document.getElementById('voxel-geom');
+const voxelRoundRadius = document.getElementById('voxel-round-radius');
+const valVoxelRoundRadius = document.getElementById('val-voxel-round-radius');
+// Renderer
+const rendererBackend = document.getElementById('renderer-backend');
 const envMode = document.getElementById('env-mode');
 const envUpload = document.getElementById('env-upload');
 const envFileRow = document.getElementById('env-file-row');
@@ -568,10 +597,20 @@ function applyMaterialPreset(presetKey) {
 }
 
 // Key directional light and hemi sky light
-let dirLight, hemiLight, fillLight, rimLight, ambientLight;
+let dirLight, hemiLight, fillLight, rimLight, ambientLight, rectAreaLight;
+
+// Post-processing chain (created in setupPostFx())
+let composer = null;
+let bloomPass = null;
+let outlinePass = null;
+let gtaoPass = null;
+let postFxEnabled = true;        // master switch — false uses renderer.render directly
+
+// WebGPU experimental renderer (loaded dynamically on toggle / reload)
+let useWebGPU = false;
 
 // --- Step 1: Initialize Three.js Environment ---
-function init() {
+async function init() {
   // 1. Scene Setup
   scene = new THREE.Scene();
   updateSceneBackground();
@@ -583,12 +622,30 @@ function init() {
   infoFov.textContent = `${camera.fov}°`;
 
   // 3. Renderer Setup
-  renderer = new THREE.WebGLRenderer({
-    canvas: webglCanvas,
-    antialias: true,
-    alpha: true,
-    preserveDrawingBuffer: true // Required for capturing screenshots
-  });
+  // Try WebGPU if user opted in; otherwise WebGL.
+  const wantWebGPU = (localStorage.getItem('everything-lego-backend') === 'webgpu');
+  if (wantWebGPU && 'gpu' in navigator) {
+    try {
+      const wgpu = await import('three/webgpu');
+      renderer = new wgpu.WebGPURenderer({ canvas: webglCanvas, antialias: true });
+      await renderer.init();
+      useWebGPU = true;
+      postFxEnabled = false; // Composer pipeline below is WebGL-only
+      console.info('[Everything-Lego] WebGPU renderer active. Post-FX disabled.');
+    } catch (err) {
+      console.warn('[Everything-Lego] WebGPU init failed, falling back to WebGL:', err);
+      renderer = new THREE.WebGLRenderer({
+        canvas: webglCanvas, antialias: true, alpha: true, preserveDrawingBuffer: true,
+      });
+    }
+  } else {
+    renderer = new THREE.WebGLRenderer({
+      canvas: webglCanvas,
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true // Required for capturing screenshots
+    });
+  }
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -644,10 +701,25 @@ function init() {
   rimLight.position.set(2, 8, -10);
   scene.add(rimLight);
 
+  // RectAreaLight — physically-accurate softbox. Best for metals + glossy
+  // surfaces because it lights with an actual rectangle of emissive area
+  // (not a point), so reflections show a real strip-shape highlight that
+  // sells the surface. Disabled by default; toggled via UI.
+  RectAreaLightUniformsLib.init();
+  rectAreaLight = new THREE.RectAreaLight(0xffffff, 0.0, 12, 8);
+  rectAreaLight.position.set(0, 8, 6);
+  rectAreaLight.lookAt(0, 0, 0);
+  scene.add(rectAreaLight);
+
   // 6. PMREM Procedural Environment Reflection Map
   pmremGenerator = new THREE.PMREMGenerator(renderer);
   pmremGenerator.compileEquirectangularShader();
   generateProceduralEnvironment();
+
+  // 6b. Post-processing pipeline (EffectComposer).
+  // Default: pass-through (RenderPass + OutputPass). Bloom / Outline /
+  // GTAO passes exist but start disabled; UI toggles flip their `enabled`.
+  setupPostFx();
 
   // 7. Load Default Model
   loadDefaultModel();
@@ -667,6 +739,110 @@ function init() {
 
 // --- Step 2: Generate Procedural Environment reflection map ---
 // Creates a canvas-based studio equirectangular map on-the-fly for smooth glass reflections offline.
+/* ─── Post-processing setup ─────────────────────────────────────────────
+   EffectComposer pipeline:
+     1. RenderPass        — draw the scene normally
+     2. GTAOPass          — ground-truth ambient occlusion (crevice shadows)
+     3. OutlinePass       — cel-style stroke around selected/all objects
+     4. UnrealBloomPass   — soft glow on bright (metallic / glass) pixels
+     5. OutputPass        — final tone-mapping + sRGB output
+   Each effect pass starts disabled; UI toggles flip pass.enabled.
+   ------------------------------------------------------------------- */
+function setupPostFx() {
+  // EffectComposer (from three/examples/jsm) is built on the WebGLRenderer
+  // pipeline. Skip silently when running the WebGPU backend.
+  if (useWebGPU) return;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+
+  composer = new EffectComposer(renderer);
+  composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  composer.setSize(w, h);
+
+  // 1. Base scene render
+  composer.addPass(new RenderPass(scene, camera));
+
+  // 2. GTAO — much higher quality than legacy SSAOPass; subtle crevice
+  // shadows make the bricks read as a real assembled pile of pieces.
+  gtaoPass = new GTAOPass(scene, camera, w, h);
+  gtaoPass.output = GTAOPass.OUTPUT.Default;
+  gtaoPass.enabled = false;
+  composer.addPass(gtaoPass);
+
+  // 3. Outline — Lego illustration / cel-shaded mode. We outline all
+  // currently-active voxel meshes; refreshed whenever they're rebuilt.
+  outlinePass = new OutlinePass(new THREE.Vector2(w, h), scene, camera);
+  outlinePass.edgeStrength    = 3.0;
+  outlinePass.edgeGlow        = 0.0;
+  outlinePass.edgeThickness   = 1.0;
+  outlinePass.pulsePeriod     = 0;
+  outlinePass.visibleEdgeColor.set('#000000');
+  outlinePass.hiddenEdgeColor.set('#000000');
+  outlinePass.enabled = false;
+  composer.addPass(outlinePass);
+
+  // 4. Bloom — gives metals + lights that "render" punch.
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.6, 0.4, 0.85);
+  bloomPass.enabled = false;
+  composer.addPass(bloomPass);
+
+  // 5. Final tone-map + colour-space pass.
+  composer.addPass(new OutputPass());
+}
+
+/* Sync outline pass's selectedObjects to whatever voxel meshes are live. */
+function refreshOutlineSelection() {
+  if (!outlinePass) return;
+  outlinePass.selectedObjects = [
+    voxelInstancedMesh,
+    voxelPlateInstancedMesh,
+    voxelStudInstancedMesh,
+  ].filter(Boolean);
+}
+
+/* Build the brick / plate body geometry based on the Voxel Primitive
+   select. All variants are sized to fit the (w × h × d) cell so the
+   greedy-packing layout doesn't need any changes — only the shape does. */
+function makeBrickGeometry(w, h, d) {
+  const kind = voxelGeomSelect ? voxelGeomSelect.value : 'box';
+  const r    = voxelRoundRadius ? parseFloat(voxelRoundRadius.value) : 0.10;
+  switch (kind) {
+    case 'rounded-box': {
+      const min = Math.min(w, h, d);
+      // r is a fraction of the smallest side; clamp so we never exceed
+      // half (anything larger is degenerate)
+      const radius = Math.min(min * 0.49, r * min);
+      return new RoundedBoxGeometry(w, h, d, 4, radius);
+    }
+    case 'sphere': {
+      // Use max dimension as diameter so the sphere fills the cell visually
+      const s = Math.max(w, h, d);
+      const g = new THREE.SphereGeometry(s / 2, 24, 16);
+      g.scale(w / s, h / s, d / s); // ellipsoid for non-cube footprints
+      return g;
+    }
+    case 'cylinder': {
+      // Axis is Y so a cylinder reads as a "post" — diameter from xz
+      const radius = Math.min(w, d) / 2;
+      return new THREE.CylinderGeometry(radius, radius, h, 24);
+    }
+    case 'capsule': {
+      const radius = Math.min(w, d) / 2;
+      const length = Math.max(0, h - 2 * radius);
+      return new THREE.CapsuleGeometry(radius, length, 6, 16);
+    }
+    case 'octahedron': {
+      const g = new THREE.OctahedronGeometry(Math.max(w, h, d) / 2, 0);
+      const s = Math.max(w, h, d);
+      g.scale(w / s, h / s, d / s);
+      return g;
+    }
+    case 'box':
+    default:
+      return new THREE.BoxGeometry(w, h, d);
+  }
+}
+
 function generateProceduralEnvironment() {
   const width = 1024;
   const height = 512;
@@ -1058,7 +1234,7 @@ function updateBlockEffect() {
         const boxDepth = voxelSize * (1.0 - gapPercent);
         
         const shape = blockShape.value;
-        const voxelGeom = new THREE.BoxGeometry(boxWidth, boxHeight, boxDepth);
+        const voxelGeom = makeBrickGeometry(boxWidth, boxHeight, boxDepth);
         
         let studGeom = null;
         const studRadius = boxWidth * 0.3;
@@ -1542,6 +1718,76 @@ function setupUIEventListeners() {
     const val = parseFloat(e.target.value);
     valEnvIntensity.textContent = val.toFixed(2);
     if (scene) scene.environmentIntensity = val;
+  });
+
+  // RectAreaLight (Softbox)
+  rectPower.addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    valRectPower.textContent = v.toFixed(1);
+    if (rectAreaLight) rectAreaLight.intensity = v;
+  });
+  rectSize.addEventListener('input', (e) => {
+    const w = parseFloat(e.target.value);
+    const h = w * (8/12); // preserve initial 12:8 aspect
+    valRectSize.textContent = `${w.toFixed(1)} × ${h.toFixed(1)}`;
+    if (rectAreaLight) {
+      rectAreaLight.width  = w;
+      rectAreaLight.height = h;
+    }
+  });
+
+  // Post FX — Bloom
+  fxBloom.addEventListener('change', (e) => {
+    if (bloomPass) bloomPass.enabled = e.target.checked;
+  });
+  fxBloomStrength.addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    valFxBloomStrength.textContent = v.toFixed(2);
+    if (bloomPass) bloomPass.strength = v;
+  });
+  fxBloomThreshold.addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    valFxBloomThreshold.textContent = v.toFixed(2);
+    if (bloomPass) bloomPass.threshold = v;
+  });
+  // Post FX — Outline
+  fxOutline.addEventListener('change', (e) => {
+    if (outlinePass) {
+      outlinePass.enabled = e.target.checked;
+      if (e.target.checked) refreshOutlineSelection();
+    }
+  });
+  fxOutlineStrength.addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    valFxOutlineStrength.textContent = v.toFixed(1);
+    if (outlinePass) outlinePass.edgeStrength = v;
+  });
+  // Post FX — GTAO
+  fxGtao.addEventListener('change', (e) => {
+    if (gtaoPass) gtaoPass.enabled = e.target.checked;
+  });
+
+  // Voxel primitive
+  voxelGeomSelect.addEventListener('change', () => {
+    // Force masks / pools to rebuild against the new geometry shape
+    triggerBlockUpdate();
+  });
+  voxelRoundRadius.addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    valVoxelRoundRadius.textContent = v.toFixed(2);
+    if (voxelGeomSelect.value === 'rounded-box') triggerBlockUpdate();
+  });
+
+  // Renderer backend (reload to apply)
+  rendererBackend.value = (localStorage.getItem('everything-lego-backend') === 'webgpu') ? 'webgpu' : 'webgl';
+  rendererBackend.addEventListener('change', (e) => {
+    localStorage.setItem('everything-lego-backend', e.target.value);
+    // Soft warning + reload prompt
+    setTimeout(() => {
+      if (confirm(`Reload now to switch to ${e.target.value.toUpperCase()} renderer?`)) {
+        location.reload();
+      }
+    }, 50);
   });
 
   // 3. Scene Background Controls
@@ -2173,19 +2419,21 @@ function updateBlockHeightmap() {
   }
 
   // Dynamically manage / pool InstancedMesh for bricks
+  const geomKind = voxelGeomSelect ? voxelGeomSelect.value : 'box';
   if (neededBricks > 0) {
     const brickGeomHeight = (shape === 'lego') ? brickH : boxSize;
-    const needsRecreate = !voxelInstancedMesh || 
+    const needsRecreate = !voxelInstancedMesh ||
       !voxelInstancedMesh.userData.isHeightmap ||
       voxelInstancedMesh.userData.shape !== shape ||
       voxelInstancedMesh.userData.gapPercent !== gapPercent ||
       voxelInstancedMesh.userData.voxelSize !== voxelSize ||
+      voxelInstancedMesh.userData.geomKind !== geomKind ||
       brickCapacity < neededBricks;
 
     if (needsRecreate) {
       clearInstancedMesh(voxelInstancedMesh);
       brickCapacity = Math.max(512, Math.round(neededBricks * 1.2));
-      const voxelGeom = new THREE.BoxGeometry(boxSize, brickGeomHeight, boxSize);
+      const voxelGeom = makeBrickGeometry(boxSize, brickGeomHeight, boxSize);
       const voxelMat = physicalMaterial.clone();
 
       voxelInstancedMesh = new THREE.InstancedMesh(voxelGeom, voxelMat, brickCapacity);
@@ -2194,7 +2442,8 @@ function updateBlockHeightmap() {
         isHeightmap: true,
         shape: shape,
         gapPercent: gapPercent,
-        voxelSize: voxelSize
+        voxelSize: voxelSize,
+        geomKind: geomKind
       };
       voxelInstancedMesh.castShadow = true;
       voxelInstancedMesh.receiveShadow = true;
@@ -2211,17 +2460,18 @@ function updateBlockHeightmap() {
 
   // Dynamically manage / pool InstancedMesh for plates
   if (neededPlates > 0) {
-    const needsRecreate = !voxelPlateInstancedMesh || 
+    const needsRecreate = !voxelPlateInstancedMesh ||
       !voxelPlateInstancedMesh.userData.isHeightmap ||
       voxelPlateInstancedMesh.userData.shape !== shape ||
       voxelPlateInstancedMesh.userData.gapPercent !== gapPercent ||
       voxelPlateInstancedMesh.userData.voxelSize !== voxelSize ||
+      voxelPlateInstancedMesh.userData.geomKind !== geomKind ||
       plateCapacity < neededPlates;
 
     if (needsRecreate) {
       clearInstancedMesh(voxelPlateInstancedMesh);
       plateCapacity = Math.max(512, Math.round(neededPlates * 1.2));
-      const plateGeom = new THREE.BoxGeometry(boxSize, plateH, boxSize);
+      const plateGeom = makeBrickGeometry(boxSize, plateH, boxSize);
       const plateMat = physicalMaterial.clone();
 
       voxelPlateInstancedMesh = new THREE.InstancedMesh(plateGeom, plateMat, plateCapacity);
@@ -2230,7 +2480,8 @@ function updateBlockHeightmap() {
         isHeightmap: true,
         shape: shape,
         gapPercent: gapPercent,
-        voxelSize: voxelSize
+        voxelSize: voxelSize,
+        geomKind: geomKind
       };
       voxelPlateInstancedMesh.castShadow = true;
       voxelPlateInstancedMesh.receiveShadow = true;
@@ -2373,6 +2624,10 @@ function updateBlockHeightmap() {
     voxelStudInstancedMesh.instanceMatrix.needsUpdate = true;
     if (voxelStudInstancedMesh.instanceColor) voxelStudInstancedMesh.instanceColor.needsUpdate = true;
   }
+
+  // Keep the OutlinePass's selection in sync with the live voxel meshes
+  // so the cel-shaded stroke follows new geometry instantly.
+  refreshOutlineSelection();
 
   // Stats calculation
   const v = (g) => g ? g.attributes.position.count : 0;
@@ -3139,8 +3394,14 @@ function captureScreenshot() {
     dataURL = canvas2D.toDataURL('image/png');
   } else {
     // 3D mode: re-render the WebGL scene to ensure preserveDrawingBuffer
-    // has the latest frame, then snapshot the renderer canvas.
-    renderer.render(scene, camera);
+    // has the latest frame, then snapshot the renderer canvas. Composer
+    // path is used when post-FX is on so the export matches the screen.
+    const anyFxOn = postFxEnabled && composer &&
+      ((bloomPass && bloomPass.enabled) ||
+       (outlinePass && outlinePass.enabled) ||
+       (gtaoPass && gtaoPass.enabled));
+    if (anyFxOn) composer.render();
+    else         renderer.render(scene, camera);
     dataURL = renderer.domElement.toDataURL('image/png');
   }
 
@@ -3403,9 +3664,16 @@ function showLoader(show) {
 
 // Handle Window Resizing
 function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(w, h);
+  // Post-FX composer + its passes need the same size
+  if (composer)   composer.setSize(w, h);
+  if (bloomPass)  bloomPass.setSize(w, h);
+  if (outlinePass)outlinePass.setSize(w, h);
+  if (gtaoPass)   gtaoPass.setSize(w, h);
   // Also keep the 2D filter canvas in sync — even when hidden, so a future
   // switch to 2D mode renders at the right resolution immediately.
   resize2DCanvas();
@@ -3484,11 +3752,19 @@ function animate() {
     }
   }
 
-  // Draw scene
-  renderer.render(scene, camera);
+  // Draw scene — through EffectComposer if post-FX is enabled and any
+  // pass is active, otherwise straight to the renderer (cheaper, skips
+  // unnecessary FBO swaps when all effects are off).
+  const anyFxOn = postFxEnabled && composer &&
+    ((bloomPass && bloomPass.enabled) ||
+     (outlinePass && outlinePass.enabled) ||
+     (gtaoPass && gtaoPass.enabled));
+  if (anyFxOn) composer.render();
+  else         renderer.render(scene, camera);
 }
 
 // Start Project
 loadSavedTheme(); // Restore theme before init so CSS variables are ready
-init();
-animate();
+init().then(() => animate()).catch((err) => {
+  console.error('Init failed:', err);
+});
