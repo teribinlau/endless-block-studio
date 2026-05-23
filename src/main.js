@@ -37,12 +37,15 @@ let activeBackgroundType = 'gradient'; // Tracks normal BG mode to restore it
 let viewMode = '3d'; // '3d' (Three.js scene) | '2d' (Lego filter on 2D canvas)
 let last2DRenderTime = 0; // throttling timestamp for video frames in 2D mode
 
-// 2D viewport (pan + zoom). Applied as a CSS-pixel transform in render2D —
-// the grid still computes its natural centred layout, then this transform
-// translates / scales it under the mouse cursor.
-const view2D = { zoom: 1.0, panX: 0, panY: 0 };
+// 2D viewport state.
+//   zoom  — scale factor applied to the natural tileSize (NOT a ctx.scale
+//           transform, so the gradients/masks stay vector-crisp at every
+//           zoom level — they're re-rasterised at the new tile size)
+//   gridX/gridY — absolute screen-px position of the grid's top-left.
+//   null = "compute centered position on next render", used after reset.
+const view2D = { zoom: 1.0, gridX: null, gridY: null };
 let isPanning2D = false;
-const panStart = { mouseX: 0, mouseY: 0, panX: 0, panY: 0 };
+const panStart = { mouseX: 0, mouseY: 0, gridX: 0, gridY: 0 };
 
 // UI Elements
 const loadingOverlay = document.getElementById('loading-overlay');
@@ -957,40 +960,55 @@ function setupUIEventListeners() {
   // 0a. Pan + Zoom for the 2D Lego-filter canvas
   // ---------------------------------------------
   // Wheel = zoom toward the cursor. Default zoom = 1, range = 0.2 to 10.
+  // Zooming changes tileSize (via baseTileSize × zoom) rather than scaling
+  // the canvas context — so the gradients & cached masks stay crisp.
   canvas2D.addEventListener('wheel', (e) => {
     if (viewMode !== '2d') return;
     e.preventDefault();
+
+    const oldZoom = view2D.zoom;
+    const factor  = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const newZoom = Math.max(0.2, Math.min(10, oldZoom * factor));
+    if (newZoom === oldZoom) return;
+
+    // Ensure gridX/gridY are initialised — kick a render if needed.
+    if (view2D.gridX === null || view2D.gridY === null) {
+      render2D();
+      if (view2D.gridX === null) return; // no media — nothing to zoom
+    }
+
     const rect = canvas2D.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
-    const oldZoom = view2D.zoom;
-    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const newZoom = Math.max(0.2, Math.min(10, oldZoom * factor));
-    if (newZoom === oldZoom) return;
-
-    // Keep the point under the cursor stationary across the zoom
+    // Keep the point under the cursor stationary across the zoom step.
+    // Because tileSize scales linearly with zoom, the same algebra still
+    // applies: new gridX = mx - (mx - old gridX) × (newZoom / oldZoom).
     const k = newZoom / oldZoom;
-    view2D.panX = mx - (mx - view2D.panX) * k;
-    view2D.panY = my - (my - view2D.panY) * k;
-    view2D.zoom = newZoom;
+    view2D.gridX = mx - (mx - view2D.gridX) * k;
+    view2D.gridY = my - (my - view2D.gridY) * k;
+    view2D.zoom  = newZoom;
     render2D();
   }, { passive: false });
 
   // Left-button drag = pan. Track on window so dragging off-canvas still works.
   canvas2D.addEventListener('mousedown', (e) => {
     if (viewMode !== '2d' || e.button !== 0) return;
+    if (view2D.gridX === null || view2D.gridY === null) {
+      render2D();
+      if (view2D.gridX === null) return;
+    }
     isPanning2D = true;
     panStart.mouseX = e.clientX;
     panStart.mouseY = e.clientY;
-    panStart.panX = view2D.panX;
-    panStart.panY = view2D.panY;
+    panStart.gridX  = view2D.gridX;
+    panStart.gridY  = view2D.gridY;
     canvas2D.style.cursor = 'grabbing';
   });
   window.addEventListener('mousemove', (e) => {
     if (!isPanning2D) return;
-    view2D.panX = panStart.panX + (e.clientX - panStart.mouseX);
-    view2D.panY = panStart.panY + (e.clientY - panStart.mouseY);
+    view2D.gridX = panStart.gridX + (e.clientX - panStart.mouseX);
+    view2D.gridY = panStart.gridY + (e.clientY - panStart.mouseY);
     render2D();
   });
   window.addEventListener('mouseup', () => {
@@ -999,12 +1017,13 @@ function setupUIEventListeners() {
     canvas2D.style.cursor = 'grab';
   });
 
-  // Double-click to reset the 2D viewport
+  // Double-click to reset the 2D viewport — clears gridX/Y so the next
+  // render recentres, and resets zoom to 1.
   canvas2D.addEventListener('dblclick', () => {
     if (viewMode !== '2d') return;
-    view2D.zoom = 1.0;
-    view2D.panX = 0;
-    view2D.panY = 0;
+    view2D.zoom  = 1.0;
+    view2D.gridX = null;
+    view2D.gridY = null;
     render2D();
   });
 
@@ -2122,13 +2141,6 @@ function render2D() {
   sampleOffscreenCanvas();
   if (!samplingData) return;
 
-  // Apply pan + zoom around the cursor for the grid drawing. setTransform
-  // in resize2DCanvas already scaled the context to devicePixelRatio, so
-  // save/restore here only stacks the view transform on top of that.
-  ctx2D.save();
-  ctx2D.translate(view2D.panX, view2D.panY);
-  ctx2D.scale(view2D.zoom, view2D.zoom);
-
   // Compute tile grid based on Block Density and media aspect
   const resolution = parseInt(blockResolution.value);
   let cols, rows;
@@ -2140,28 +2152,45 @@ function render2D() {
     rows = resolution;
   }
 
-  // Fit the grid inside the viewport with breathing room
+  // Natural tile size at zoom = 1 (fits the grid in the viewport with margins)
   const margin = 32;
   const availW = w - 2 * margin;
   const availH = h - 2 * margin;
-  const tileSize = Math.max(2, Math.floor(Math.min(availW / cols, availH / rows)));
+  const baseTileSize = Math.max(2, Math.floor(Math.min(availW / cols, availH / rows)));
+
+  // Apply zoom by scaling the tile size itself — this keeps gradients and
+  // cached masks crisp at every zoom level, because they're re-rasterised
+  // at the new tileSize instead of being pixel-stretched by ctx.scale().
+  const tileSize = Math.max(2, Math.round(baseTileSize * view2D.zoom));
   const gridW = tileSize * cols;
   const gridH = tileSize * rows;
-  const offsetX = Math.round((w - gridW) / 2);
-  const offsetY = Math.round((h - gridH) / 2);
+
+  // Lazy-init / reset: centre the grid in the viewport
+  if (view2D.gridX === null) view2D.gridX = (w - gridW) / 2;
+  if (view2D.gridY === null) view2D.gridY = (h - gridH) / 2;
+
+  const offsetX = Math.round(view2D.gridX);
+  const offsetY = Math.round(view2D.gridY);
 
   // Stud geometry
   const studR = tileSize * 0.36;
 
-  // Pre-rendered overlays (one per tileSize) — shadow already has its top
-  // edge softened; highlight already has its left/right tips faded out.
+  // Pre-rendered overlays (one per tileSize, so they re-build automatically
+  // when zoom changes the effective tileSize)
   const shadowMask    = getShadowMask(tileSize, studR);
   const highlightMask = getHighlightMask(tileSize, studR);
 
   const useSnap = blockLegoSnap.checked; // optional; defaults checked
 
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
+  // Skip cells that fall entirely outside the visible viewport — at high
+  // zoom most cells are off-screen, so this keeps the inner loop cheap.
+  const cStart = Math.max(0, Math.floor((-offsetX) / tileSize));
+  const cEnd   = Math.min(cols, Math.ceil((w - offsetX) / tileSize) + 1);
+  const rStart = Math.max(0, Math.floor((-offsetY) / tileSize));
+  const rEnd   = Math.min(rows, Math.ceil((h - offsetY) / tileSize) + 1);
+
+  for (let r = rStart; r < rEnd; r++) {
+    for (let c = cStart; c < cEnd; c++) {
       const u = c / (cols - 1 || 1);
       const v = r / (rows - 1 || 1);
       const a = getSampledPixelAlpha(u, v);
@@ -2192,9 +2221,6 @@ function render2D() {
       ctx2D.drawImage(highlightMask, x, y);
     }
   }
-
-  // Pop the view transform so the background / overlays stay in CSS-pixel space
-  ctx2D.restore();
 }
 
 /* ===========================================================================
