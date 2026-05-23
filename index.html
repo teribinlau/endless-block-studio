@@ -549,8 +549,12 @@
                   </select>
                 </div>
                 <div id="renderer-note" class="shortcut-tip" style="font-size: 0.66rem; margin-top: 6px;">
-                  Switching backend requires a page reload. WebGPU may disable Post FX
-                  passes that depend on GLSL shaders.
+                  Switching backend reloads the page.<br>
+                  <b>WebGPU caveats</b>: this Three.js build's WebGPU support for
+                  <code>MeshPhysicalMaterial</code> + <code>InstancedMesh.instanceColor</code>
+                  is partial — voxel bricks may render <b>all black</b>. Post-FX passes
+                  (Bloom / Outline / GTAO) are disabled because EffectComposer is WebGL-only.
+                  Stick with WebGL unless you're benchmarking.
                 </div>
               </div>
             </div>

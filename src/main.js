@@ -627,11 +627,19 @@ async function init() {
   if (wantWebGPU && 'gpu' in navigator) {
     try {
       const wgpu = await import('three/webgpu');
+      window.__threeWGPU = wgpu; // expose for PMREMGenerator swap below
       renderer = new wgpu.WebGPURenderer({ canvas: webglCanvas, antialias: true });
       await renderer.init();
       useWebGPU = true;
       postFxEnabled = false; // Composer pipeline below is WebGL-only
-      console.info('[Everything-Lego] WebGPU renderer active. Post-FX disabled.');
+      console.warn(
+        '[Everything-Lego] WebGPU renderer is ACTIVE.\n' +
+        'Note: Three.js r' + THREE.REVISION + ' WebGPU + MeshPhysicalMaterial + ' +
+        'InstancedMesh.instanceColor is only partially compatible — voxel bricks ' +
+        'may render black. This is a Three.js limitation, not an app bug. ' +
+        'Switch the Renderer dropdown back to "WebGL" and reload to recover.'
+      );
+      showWebGPUWarningBanner();
     } catch (err) {
       console.warn('[Everything-Lego] WebGPU init failed, falling back to WebGL:', err);
       renderer = new THREE.WebGLRenderer({
@@ -711,9 +719,14 @@ async function init() {
   rectAreaLight.lookAt(0, 0, 0);
   scene.add(rectAreaLight);
 
-  // 6. PMREM Procedural Environment Reflection Map
-  pmremGenerator = new THREE.PMREMGenerator(renderer);
-  pmremGenerator.compileEquirectangularShader();
+  // 6. PMREM Procedural Environment Reflection Map.
+  // Use the WebGPU-aware PMREMGenerator when running the WebGPU backend
+  // (the WebGL one would silently produce a broken cube texture there).
+  const PMREMCtor = (useWebGPU && window.__threeWGPU?.PMREMGenerator) || THREE.PMREMGenerator;
+  pmremGenerator = new PMREMCtor(renderer);
+  if (pmremGenerator.compileEquirectangularShader) {
+    pmremGenerator.compileEquirectangularShader();
+  }
   generateProceduralEnvironment();
 
   // 6b. Post-processing pipeline (EffectComposer).
@@ -748,6 +761,37 @@ async function init() {
      5. OutputPass        — final tone-mapping + sRGB output
    Each effect pass starts disabled; UI toggles flip pass.enabled.
    ------------------------------------------------------------------- */
+/* Yellow banner shown when WebGPU is active, with a one-click "Switch back
+   to WebGL" button. Mounted to <body> so it's visible even if the canvas
+   itself ends up all-black due to the known compatibility issues. */
+function showWebGPUWarningBanner() {
+  if (document.getElementById('webgpu-banner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'webgpu-banner';
+  bar.style.cssText = [
+    'position:fixed', 'top:0', 'left:0', 'right:0', 'z-index:9999',
+    'background:#ff9f0a', 'color:#201d1d',
+    'padding:8px 16px', 'font-family:JetBrains Mono,monospace',
+    'font-size:12px', 'font-weight:600', 'letter-spacing:0.04em',
+    'display:flex', 'align-items:center', 'justify-content:space-between',
+    'gap:12px', 'box-shadow:0 1px 0 rgba(0,0,0,0.2)',
+  ].join(';');
+  bar.innerHTML = `
+    <span>[!] WebGPU experimental mode — PBR + InstancedMesh may render black.
+      This is a Three.js compatibility limitation, not a bug in the app.</span>
+    <button id="webgpu-revert"
+      style="background:#201d1d;color:#fdfcfc;border:none;padding:5px 12px;
+             border-radius:4px;cursor:pointer;font-family:inherit;
+             font-size:11px;font-weight:600;letter-spacing:0.05em">
+      ↻ Switch back to WebGL
+    </button>`;
+  document.body.appendChild(bar);
+  document.getElementById('webgpu-revert').addEventListener('click', () => {
+    localStorage.setItem('everything-lego-backend', 'webgl');
+    location.reload();
+  });
+}
+
 function setupPostFx() {
   // EffectComposer (from three/examples/jsm) is built on the WebGLRenderer
   // pipeline. Skip silently when running the WebGPU backend.
