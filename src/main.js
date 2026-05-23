@@ -4,6 +4,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // --- State Variables ---
@@ -90,6 +92,12 @@ const lightZ = document.getElementById('light-z');
 const valLightZ = document.getElementById('val-light-z');
 const hemiIntensity = document.getElementById('hemi-intensity');
 const valHemiIntensity = document.getElementById('val-hemi-intensity');
+const envMode = document.getElementById('env-mode');
+const envUpload = document.getElementById('env-upload');
+const envFileRow = document.getElementById('env-file-row');
+const envFileName = document.getElementById('env-file-name');
+const envIntensityInput = document.getElementById('env-intensity');
+const valEnvIntensity = document.getElementById('val-env-intensity');
 
 // Scene Inputs
 const sceneBgType = document.getElementById('scene-bg-type');
@@ -710,8 +718,83 @@ function generateProceduralEnvironment() {
   // Process through PMREM Generator
   proceduralEnvTexture = pmremGenerator.fromEquirectangular(canvasTexture).texture;
   scene.environment = proceduralEnvTexture;
+  scene.environmentIntensity = parseFloat(envIntensityInput?.value ?? 1.0);
 
   canvasTexture.dispose();
+}
+
+/* ─── Environment-map manager ───────────────────────────────────────────
+   The PBR look of every metal / glass / pearl preset depends on whatever
+   scene.environment is set to. This pair of helpers lets the user pick
+   from procedural / built-in studio / their own HDR / off.
+   ------------------------------------------------------------------- */
+let userEnvTexture = null;        // PMREM-processed user upload (HDR/img)
+let studioEnvTexture = null;      // PMREM RoomEnvironment, lazy-built
+
+function applyEnvironment(mode) {
+  if (!scene || !pmremGenerator) return;
+  switch (mode) {
+    case 'studio':
+      if (!studioEnvTexture) {
+        studioEnvTexture = pmremGenerator.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+      }
+      scene.environment = studioEnvTexture;
+      break;
+    case 'upload':
+      if (userEnvTexture) scene.environment = userEnvTexture;
+      // If no file picked yet, fall back to procedural so the scene
+      // doesn't suddenly go pitch black.
+      else if (proceduralEnvTexture) scene.environment = proceduralEnvTexture;
+      break;
+    case 'none':
+      scene.environment = null;
+      break;
+    case 'procedural':
+    default:
+      if (proceduralEnvTexture) scene.environment = proceduralEnvTexture;
+      break;
+  }
+  // Re-apply intensity since it's a scene-level property
+  scene.environmentIntensity = parseFloat(envIntensityInput?.value ?? 1.0);
+  updateVoxelMaterials();
+}
+
+function handleEnvUpload(file) {
+  if (!file || !pmremGenerator) return;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const url = URL.createObjectURL(file);
+  envFileName.textContent = `loading ${file.name}…`;
+  envFileRow.style.display = 'block';
+
+  const onLoaded = (sourceTex) => {
+    // Dispose previous user env so we don't leak GPU memory
+    if (userEnvTexture) { userEnvTexture.dispose(); userEnvTexture = null; }
+    const env = pmremGenerator.fromEquirectangular(sourceTex).texture;
+    userEnvTexture = env;
+    sourceTex.dispose();
+    URL.revokeObjectURL(url);
+    envFileName.textContent = file.name;
+    // Auto-switch to upload mode so the user sees the result immediately
+    envMode.value = 'upload';
+    applyEnvironment('upload');
+  };
+  const onErr = (err) => {
+    console.error('Env upload failed', err);
+    envFileName.textContent = `failed: ${file.name}`;
+    URL.revokeObjectURL(url);
+  };
+
+  if (ext === 'hdr') {
+    new RGBELoader().load(url, onLoaded, undefined, onErr);
+  } else {
+    // jpg / png / webp equirectangular
+    new THREE.TextureLoader().load(
+      url,
+      (tex) => { tex.mapping = THREE.EquirectangularReflectionMapping; onLoaded(tex); },
+      undefined,
+      onErr,
+    );
+  }
 }
 
 // --- Step 3: Load Default Model ---
@@ -1434,6 +1517,28 @@ function setupUIEventListeners() {
     const val = parseFloat(e.target.value);
     valHemiIntensity.textContent = val.toFixed(2);
     hemiLight.intensity = val;
+  });
+
+  // Environment-map selector. 'upload' opens the file picker on click.
+  envMode.addEventListener('change', (e) => {
+    const v = e.target.value;
+    if (v === 'upload') {
+      envFileRow.style.display = userEnvTexture ? 'block' : 'none';
+      if (!userEnvTexture) envUpload.click();
+      else applyEnvironment('upload');
+    } else {
+      envFileRow.style.display = 'none';
+      applyEnvironment(v);
+    }
+  });
+  envUpload.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) handleEnvUpload(e.target.files[0]);
+    envUpload.value = ''; // allow re-uploading the same file
+  });
+  envIntensityInput.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    valEnvIntensity.textContent = val.toFixed(2);
+    if (scene) scene.environmentIntensity = val;
   });
 
   // 3. Scene Background Controls
