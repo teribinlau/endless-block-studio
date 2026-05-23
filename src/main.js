@@ -2019,20 +2019,25 @@ function render2D() {
       ctx2D.fillStyle = `rgb(${R},${G},${B})`;
       ctx2D.fillRect(x, y, tileSize, tileSize);
 
-      // 2. Bottom shadow OUTSIDE the stud — vertical same-hue darker
-      //    gradient applied to the brick body, but clipped to exclude
-      //    the stud circle (so the stud stays pure base colour).
+      // 2. Bottom shadow — a half-donut hugging the lower edge of the stud.
+      //    Simulates the cast shadow of the dome: darkest right at the
+      //    stud's bottom rim, fading to transparent a short distance
+      //    outward. Constrained to the bottom semicircle only.
       ctx2D.save();
+      // Clip A: brick body minus stud interior (even-odd donut shape)
       ctx2D.beginPath();
-      // Even-odd clip: full brick rect minus the stud circle = brick body
-      // with a circular hole punched out.
       ctx2D.rect(x, y, tileSize, tileSize);
       ctx2D.arc(cxp, cyp, studR, 0, Math.PI * 2, true);
       ctx2D.clip('evenodd');
+      // Clip B: keep only the half below the stud's centre line
+      ctx2D.beginPath();
+      ctx2D.rect(x, cyp, tileSize, tileSize);
+      ctx2D.clip();
 
-      const grad = ctx2D.createLinearGradient(cxp, cyp - studR * 0.2, cxp, y + tileSize);
-      grad.addColorStop(0, `rgba(${dR},${dG},${dB},0)`);
-      grad.addColorStop(1, `rgba(${dR},${dG},${dB},0.75)`);
+      // Radial gradient — dark at the stud edge, transparent at ~1.4× radius
+      const grad = ctx2D.createRadialGradient(cxp, cyp, studR, cxp, cyp, studR * 1.42);
+      grad.addColorStop(0, `rgba(${dR},${dG},${dB},0.72)`);
+      grad.addColorStop(1, `rgba(${dR},${dG},${dB},0)`);
       ctx2D.fillStyle = grad;
       ctx2D.fillRect(x, y, tileSize, tileSize);
       ctx2D.restore();
