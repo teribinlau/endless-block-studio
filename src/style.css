@@ -301,6 +301,13 @@ body {
   height: 100%;
   display: block;
   background: var(--bg-color);
+  cursor: grab;
+  /* Disable native gesture / touch panning so wheel + drag are ours */
+  touch-action: none;
+}
+
+.canvas-2d:active {
+  cursor: grabbing;
 }
 
 .canvas-2d-empty {
@@ -325,6 +332,13 @@ body {
   letter-spacing: 0.1em;
   color: var(--accent-color);
   opacity: 0.55;
+}
+
+.canvas-2d-empty .empty-hint {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  opacity: 0.5;
+  margin: 0;
 }
 
 /* Video export controls */

@@ -37,6 +37,13 @@ let activeBackgroundType = 'gradient'; // Tracks normal BG mode to restore it
 let viewMode = '3d'; // '3d' (Three.js scene) | '2d' (Lego filter on 2D canvas)
 let last2DRenderTime = 0; // throttling timestamp for video frames in 2D mode
 
+// 2D viewport (pan + zoom). Applied as a CSS-pixel transform in render2D —
+// the grid still computes its natural centred layout, then this transform
+// translates / scales it under the mouse cursor.
+const view2D = { zoom: 1.0, panX: 0, panY: 0 };
+let isPanning2D = false;
+const panStart = { mouseX: 0, mouseY: 0, panX: 0, panY: 0 };
+
 // UI Elements
 const loadingOverlay = document.getElementById('loading-overlay');
 const loaderProgress = document.getElementById('loader-progress');
@@ -946,6 +953,60 @@ function setupUIEventListeners() {
   // 0. 2D / 3D View-Mode toggle (top-center pill)
   btnMode3D.addEventListener('click', () => setViewMode('3d'));
   btnMode2D.addEventListener('click', () => setViewMode('2d'));
+
+  // 0a. Pan + Zoom for the 2D Lego-filter canvas
+  // ---------------------------------------------
+  // Wheel = zoom toward the cursor. Default zoom = 1, range = 0.2 to 10.
+  canvas2D.addEventListener('wheel', (e) => {
+    if (viewMode !== '2d') return;
+    e.preventDefault();
+    const rect = canvas2D.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const oldZoom = view2D.zoom;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const newZoom = Math.max(0.2, Math.min(10, oldZoom * factor));
+    if (newZoom === oldZoom) return;
+
+    // Keep the point under the cursor stationary across the zoom
+    const k = newZoom / oldZoom;
+    view2D.panX = mx - (mx - view2D.panX) * k;
+    view2D.panY = my - (my - view2D.panY) * k;
+    view2D.zoom = newZoom;
+    render2D();
+  }, { passive: false });
+
+  // Left-button drag = pan. Track on window so dragging off-canvas still works.
+  canvas2D.addEventListener('mousedown', (e) => {
+    if (viewMode !== '2d' || e.button !== 0) return;
+    isPanning2D = true;
+    panStart.mouseX = e.clientX;
+    panStart.mouseY = e.clientY;
+    panStart.panX = view2D.panX;
+    panStart.panY = view2D.panY;
+    canvas2D.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!isPanning2D) return;
+    view2D.panX = panStart.panX + (e.clientX - panStart.mouseX);
+    view2D.panY = panStart.panY + (e.clientY - panStart.mouseY);
+    render2D();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!isPanning2D) return;
+    isPanning2D = false;
+    canvas2D.style.cursor = 'grab';
+  });
+
+  // Double-click to reset the 2D viewport
+  canvas2D.addEventListener('dblclick', () => {
+    if (viewMode !== '2d') return;
+    view2D.zoom = 1.0;
+    view2D.panX = 0;
+    view2D.panY = 0;
+    render2D();
+  });
 
   // 0b. Video export — captures one full loop of the active video as WebM / MP4
   btnExportVideo.addEventListener('click', () => { exportVideo(); });
@@ -2046,7 +2107,7 @@ function render2D() {
   const w = canvas2D.clientWidth;
   const h = canvas2D.clientHeight;
 
-  // Background fill (matches CSS bg)
+  // Background fill (always in untransformed CSS-pixel space)
   const bgStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim() || '#08080a';
   ctx2D.fillStyle = bgStyle;
   ctx2D.fillRect(0, 0, w, h);
@@ -2060,6 +2121,13 @@ function render2D() {
   // Refresh pixel buffer from current image / video frame
   sampleOffscreenCanvas();
   if (!samplingData) return;
+
+  // Apply pan + zoom around the cursor for the grid drawing. setTransform
+  // in resize2DCanvas already scaled the context to devicePixelRatio, so
+  // save/restore here only stacks the view transform on top of that.
+  ctx2D.save();
+  ctx2D.translate(view2D.panX, view2D.panY);
+  ctx2D.scale(view2D.zoom, view2D.zoom);
 
   // Compute tile grid based on Block Density and media aspect
   const resolution = parseInt(blockResolution.value);
@@ -2124,6 +2192,9 @@ function render2D() {
       ctx2D.drawImage(highlightMask, x, y);
     }
   }
+
+  // Pop the view transform so the background / overlays stay in CSS-pixel space
+  ctx2D.restore();
 }
 
 /* ===========================================================================
