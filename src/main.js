@@ -188,19 +188,17 @@ const physicalMaterial = new THREE.MeshPhysicalMaterial({
   depthWrite: true,
 });
 
-// ─── Wood texture cache ─────────────────────────────────────────────────
-// Loaded once at startup; presets reference these via the `texture` field
-// in materialPresets. Anything that fails to load (e.g. user hasn't placed
-// the file yet) silently stays `null`, and the preset falls back to its
-// flat base colour. Diffuse maps are sRGB; the normal map is linear RGB.
+// ─── Wood PBR texture cache ─────────────────────────────────────────────
+// Loaded once at startup. The 'wood' preset binds these three maps onto
+// MeshPhysicalMaterial when selected. Anything that fails to load (e.g.
+// user hasn't placed the file yet) silently stays `null`, and the preset
+// falls back to its flat base colour.
+//   • albedo  — colour (sRGB)
+//   • normal  — surface bumps (linear RGB)
+//   • ao      — ambient occlusion (linear single channel; uses uv channel 0
+//               via aoMap.channel = 0 so we don't need a second UV set)
 const woodTextureLoader = new THREE.TextureLoader();
-const woodTextures = {
-  normal: null,
-  oak: null,
-  whiteGrain: null,
-  tanPlank: null,
-  whitePlank: null,
-};
+const woodTextures = { albedo: null, normal: null, ao: null };
 
 function loadWoodTexture(url, sRGB = true) {
   return new Promise((resolve) => {
@@ -221,18 +219,17 @@ function loadWoodTexture(url, sRGB = true) {
 
 (async function loadWoodTextures() {
   const base = '/textures/wood';
-  const [normal, oak, whiteGrain, tanPlank, whitePlank] = await Promise.all([
-    loadWoodTexture(`${base}/wood_normal.jpg`, /*sRGB*/ false),
-    loadWoodTexture(`${base}/wood_oak.jpg`),
-    loadWoodTexture(`${base}/wood_white_grain.jpg`),
-    loadWoodTexture(`${base}/wood_tan_plank.jpg`),
-    loadWoodTexture(`${base}/wood_white_plank.jpg`),
+  const [albedo, normal, ao] = await Promise.all([
+    loadWoodTexture(`${base}/Wood_Albedo.jpg`,            /*sRGB*/ true),
+    loadWoodTexture(`${base}/Wood_Normal.jpg`,            /*sRGB*/ false),
+    loadWoodTexture(`${base}/Wood_Ambient_Occlusion.jpg`, /*sRGB*/ false),
   ]);
-  woodTextures.normal     = normal;
-  woodTextures.oak        = oak;
-  woodTextures.whiteGrain = whiteGrain;
-  woodTextures.tanPlank   = tanPlank;
-  woodTextures.whitePlank = whitePlank;
+  // aoMap defaults to channel 1 (a second UV set). Our brick BoxGeometry
+  // only has uv channel 0, so retarget the AO map onto channel 0.
+  if (ao) ao.channel = 0;
+  woodTextures.albedo = albedo;
+  woodTextures.normal = normal;
+  woodTextures.ao     = ao;
   // If the wood preset is currently active, hot-swap the textures onto it.
   if (materialPreset && (materialPreset.value || '').startsWith('wood')) {
     applyMaterialPreset(materialPreset.value);
@@ -366,32 +363,13 @@ const materialPresets = {
     color: '#f5f0e8'
   },
   wood: {
-    // Natural oak — warm brown end-grain diffuse + shared normal.
+    // Natural wood — full PBR texture set (albedo + normal + AO) loaded
+    // from public/textures/wood/. Color stays white so the albedo map
+    // shows pure, untinted by the base colour.
     roughness: 0.80, metalness: 0.00,
     transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.15, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff', texture: 'oak'
-  },
-  'wood-white': {
-    // White-washed plank — bright planked diffuse on the same normal.
-    roughness: 0.78, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
     clearcoat: 0.12, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff', texture: 'whitePlank'
-  },
-  'wood-tan': {
-    // Light tan plank — softer, warmer than white.
-    roughness: 0.78, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.12, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff', texture: 'tanPlank'
-  },
-  'wood-end-white': {
-    // Cross-section "stump rings" — high-contrast white end-grain.
-    roughness: 0.82, metalness: 0.00,
-    transmission: 0.00, thickness: 0.0, ior: 1.50,
-    clearcoat: 0.10, sheen: 0.00, iridescence: 0.00,
-    color: '#ffffff', texture: 'whiteGrain'
+    color: '#ffffff', useWoodTextures: true
   },
 
   // ── Special Optics ───────────────────────────────────────────────────
@@ -444,9 +422,11 @@ function updateVoxelMaterials() {
       mat.iridescence = physicalMaterial.iridescence;
       mat.iridescenceIOR = physicalMaterial.iridescenceIOR;
       mat.iridescenceThicknessRange = physicalMaterial.iridescenceThicknessRange;
-      // Wood-family texture forwarding
+      // Wood-family texture forwarding (albedo + normal + AO)
       mat.map       = physicalMaterial.map       || null;
       mat.normalMap = physicalMaterial.normalMap || null;
+      mat.aoMap     = physicalMaterial.aoMap     || null;
+      mat.aoMapIntensity = physicalMaterial.aoMapIntensity ?? 0;
       if (mat.normalScale && physicalMaterial.normalScale) {
         mat.normalScale.copy(physicalMaterial.normalScale);
       }
@@ -486,15 +466,17 @@ function applyMaterialPreset(presetKey) {
   physicalMaterial.transparent  = preset.transmission > 0;
 
   // ── Textured presets (wood family) ────────────────────────────────────
-  // If the preset names a texture, swap diffuse + shared normal map onto
-  // physicalMaterial. Otherwise null them out so other presets render flat.
-  const diffuse = preset.texture ? woodTextures[preset.texture] : null;
-  const normal  = preset.texture ? woodTextures.normal          : null;
-  physicalMaterial.map       = diffuse || null;
-  physicalMaterial.normalMap = normal  || null;
+  // If the preset opts in, swap albedo + normal + AO onto physicalMaterial.
+  // Otherwise null all three out so other presets render flat-colour.
+  const useTex = !!preset.useWoodTextures;
+  physicalMaterial.map       = useTex ? (woodTextures.albedo || null) : null;
+  physicalMaterial.normalMap = useTex ? (woodTextures.normal || null) : null;
+  physicalMaterial.aoMap     = useTex ? (woodTextures.ao     || null) : null;
   if (physicalMaterial.normalScale) {
-    physicalMaterial.normalScale.set(normal ? 1 : 0, normal ? 1 : 0);
+    const on = useTex && woodTextures.normal;
+    physicalMaterial.normalScale.set(on ? 1 : 0, on ? 1 : 0);
   }
+  physicalMaterial.aoMapIntensity = useTex ? 1.0 : 0.0;
 
   // ── Extended PBR (Clearcoat / Sheen / Iridescence) ─────────────────────
   const cc  = preset.clearcoat   ?? 0;
