@@ -1943,6 +1943,8 @@ function resize2DCanvas() {
    destination-in to soften the top edge without affecting the brick body. */
 let cachedShadowMask = null;
 let cachedShadowMaskTile = 0;
+let cachedHighlightMask = null;
+let cachedHighlightMaskTile = 0;
 
 function getShadowMask(tileSize, studR) {
   if (cachedShadowMask && cachedShadowMaskTile === tileSize) return cachedShadowMask;
@@ -1983,6 +1985,46 @@ function getShadowMask(tileSize, studR) {
 
   cachedShadowMask = off;
   cachedShadowMaskTile = tileSize;
+  return off;
+}
+
+/* Cached highlight mask — top-arc highlight as WHITE pixels with alpha.
+   Drawn over the brick body it produces a same-hue brighter tint. The arc
+   is stroked first, then a horizontal triangular fade is applied via
+   destination-in so the left/right ends taper smoothly to nothing. */
+function getHighlightMask(tileSize, studR) {
+  if (cachedHighlightMask && cachedHighlightMaskTile === tileSize) return cachedHighlightMask;
+
+  const off = document.createElement('canvas');
+  off.width  = tileSize;
+  off.height = tileSize;
+  const octx = off.getContext('2d');
+  const half = tileSize / 2;
+  const lineW = Math.max(1.5, studR * 0.13);
+  const r = studR * 0.93;
+
+  // Stroke the top-arc highlight in white. Alpha here determines the
+  // overall highlight brightness when composited onto any brick colour.
+  octx.strokeStyle = 'rgba(255,255,255,0.42)';
+  octx.lineWidth = lineW;
+  octx.lineCap = 'round';
+  octx.beginPath();
+  // 7π/6 → 11π/6  ≡  210° → 330°  (≈120° centred on 12 o'clock)
+  octx.arc(half, half, r, Math.PI * 7 / 6, Math.PI * 11 / 6);
+  octx.stroke();
+
+  // Soft left/right fade — destination-in with a triangular alpha gradient
+  // keeps the centre of the arc opaque and erases the tips smoothly.
+  octx.globalCompositeOperation = 'destination-in';
+  const fade = octx.createLinearGradient(0, 0, tileSize, 0);
+  fade.addColorStop(0.00, 'rgba(0,0,0,0)');
+  fade.addColorStop(0.50, 'rgba(0,0,0,1)');
+  fade.addColorStop(1.00, 'rgba(0,0,0,0)');
+  octx.fillStyle = fade;
+  octx.fillRect(0, 0, tileSize, tileSize);
+
+  cachedHighlightMask = off;
+  cachedHighlightMaskTile = tileSize;
   return off;
 }
 
@@ -2030,14 +2072,11 @@ function render2D() {
 
   // Stud geometry
   const studR = tileSize * 0.36;
-  const highlightLineW = Math.max(1.5, studR * 0.13);
-  const highlightR = studR * 0.93;
-  // Top-arc spans ~120° centred on 12 o'clock (Canvas angles: 3π/2 is up).
-  const arcStart = Math.PI * 7 / 6;   // ≈ 210°
-  const arcEnd   = Math.PI * 11 / 6;  // ≈ 330°
 
-  // Pre-rendered shadow mask (one per tileSize) — already has soft top fade
-  const shadowMask = getShadowMask(tileSize, studR);
+  // Pre-rendered overlays (one per tileSize) — shadow already has its top
+  // edge softened; highlight already has its left/right tips faded out.
+  const shadowMask    = getShadowMask(tileSize, studR);
+  const highlightMask = getHighlightMask(tileSize, studR);
 
   const useSnap = blockLegoSnap.checked; // optional; defaults checked
 
@@ -2055,15 +2094,8 @@ function render2D() {
       const G = Math.max(0, Math.min(255, Math.round(col.g * 255)));
       const B = Math.max(0, Math.min(255, Math.round(col.b * 255)));
 
-      // Same-hue brighter variant (for the top-arc highlight)
-      const hR = Math.min(255, R + Math.round((255 - R) * 0.32));
-      const hG = Math.min(255, G + Math.round((255 - G) * 0.32));
-      const hB = Math.min(255, B + Math.round((255 - B) * 0.32));
-
       const x = offsetX + c * tileSize;
       const y = offsetY + r * tileSize;
-      const cxp = x + tileSize / 2;
-      const cyp = y + tileSize / 2;
 
       // 1. Brick body — flat solid fill, seamless (no gap)
       ctx2D.fillStyle = `rgb(${R},${G},${B})`;
@@ -2071,17 +2103,13 @@ function render2D() {
 
       // 2. Stud shadow — composite the cached black mask. Black-over-colour
       //    via source-over yields a same-hue darken; the mask already has
-      //    the half-donut shape + soft vertical fade baked in, so no hard
-      //    horizontal seam can appear at the stud's equator.
+      //    the half-donut shape + soft vertical fade baked in.
       ctx2D.drawImage(shadowMask, x, y);
 
-      // 3. Top-arc highlight — bright same-hue stroke covering ~120° of
-      //    the upper rim of the stud circle.
-      ctx2D.strokeStyle = `rgb(${hR},${hG},${hB})`;
-      ctx2D.lineWidth = highlightLineW;
-      ctx2D.beginPath();
-      ctx2D.arc(cxp, cyp, highlightR, arcStart, arcEnd);
-      ctx2D.stroke();
+      // 3. Top-arc highlight — composite the cached white mask. White-over-
+      //    colour yields a same-hue brighten; the mask already has its
+      //    left/right tips faded out via a horizontal triangular gradient.
+      ctx2D.drawImage(highlightMask, x, y);
     }
   }
 }
