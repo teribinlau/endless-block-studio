@@ -2568,9 +2568,19 @@ function autoScaleModel() {
 // --- Step 7: Export Actions ---
 // Snapshot PNG Capture
 function captureScreenshot() {
-  // Re-render immediately to capture clean buffer
-  renderer.render(scene, camera);
-  const dataURL = renderer.domElement.toDataURL('image/png');
+  let dataURL;
+
+  if (viewMode === '2d') {
+    // 2D mode: snapshot the Lego-filter canvas. Re-render synchronously
+    // so the latest frame is in the buffer before we read it out.
+    render2D();
+    dataURL = canvas2D.toDataURL('image/png');
+  } else {
+    // 3D mode: re-render the WebGL scene to ensure preserveDrawingBuffer
+    // has the latest frame, then snapshot the renderer canvas.
+    renderer.render(scene, camera);
+    dataURL = renderer.domElement.toDataURL('image/png');
+  }
 
   // Trigger download
   const link = document.createElement('a');
