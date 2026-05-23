@@ -1955,33 +1955,51 @@ function getShadowMask(tileSize, studR) {
   const octx = off.getContext('2d');
   const half = tileSize / 2;
 
+  // Cylinder-style shadow: a vertical band whose width matches the stud's
+  // diameter, extending straight down from the stud's bottom rim to the
+  // bottom of the cell. The shape is what the stud would cast if light
+  // were coming from "above" in 2D-screen space.
+  const shadowTopY = half + studR;
+  const shadowBotY = tileSize;
+
   octx.save();
 
-  // Clip to brick body minus stud (donut)
+  // Clip A: the vertical band 2R wide, from stud-bottom down to cell-bottom
   octx.beginPath();
-  octx.rect(0, 0, tileSize, tileSize);
-  octx.arc(half, half, studR, 0, Math.PI * 2, true);
-  octx.clip('evenodd');
+  octx.rect(half - studR, shadowTopY, studR * 2, shadowBotY - shadowTopY);
+  octx.clip();
 
-  // Radial shadow — black with ease-out alpha falloff
-  const grad = octx.createRadialGradient(half, half, studR, half, half, studR * 1.6);
-  grad.addColorStop(0.00, 'rgba(0,0,0,0.55)');
-  grad.addColorStop(0.55, 'rgba(0,0,0,0.22)');
-  grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+  // Linear vertical gradient — dark right under the stud, transparent at
+  // the cell's bottom edge so the shadow fades cleanly without a hard line.
+  const grad = octx.createLinearGradient(0, shadowTopY, 0, shadowBotY);
+  grad.addColorStop(0, 'rgba(0,0,0,0.55)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
   octx.fillStyle = grad;
   octx.fillRect(0, 0, tileSize, tileSize);
 
-  // Soft top fade — destination-in with a vertical alpha gradient keeps
-  // the bottom of the shadow and smoothly erases the upper portion.
-  // No hard horizontal line.
+  octx.restore();
+
+  // Soft top fade — destination-in with a vertical alpha ramp so the
+  // top edge of the shadow blends into the stud's silhouette rather than
+  // butting up against it.
   octx.globalCompositeOperation = 'destination-in';
-  const fade = octx.createLinearGradient(0, half - studR * 0.55, 0, half + studR * 0.30);
-  fade.addColorStop(0, 'rgba(0,0,0,0)');  // top: fully erase
-  fade.addColorStop(1, 'rgba(0,0,0,1)');  // bottom: keep
-  octx.fillStyle = fade;
+  const topFade = octx.createLinearGradient(0, shadowTopY - studR * 0.08, 0, shadowTopY + studR * 0.20);
+  topFade.addColorStop(0, 'rgba(0,0,0,0)');   // above: erase
+  topFade.addColorStop(1, 'rgba(0,0,0,1)');   // below: keep
+  octx.fillStyle = topFade;
   octx.fillRect(0, 0, tileSize, tileSize);
 
-  octx.restore();
+  // Soft side fade — destination-in with a horizontal triangular alpha
+  // gradient so the left/right edges of the band aren't razor-sharp.
+  // Multiplied with the existing alpha via destination-in.
+  // Disabled here for crisp cylinder edges; uncomment to soften:
+  // const sideFade = octx.createLinearGradient(half - studR, 0, half + studR, 0);
+  // sideFade.addColorStop(0.00, 'rgba(0,0,0,0)');
+  // sideFade.addColorStop(0.15, 'rgba(0,0,0,1)');
+  // sideFade.addColorStop(0.85, 'rgba(0,0,0,1)');
+  // sideFade.addColorStop(1.00, 'rgba(0,0,0,0)');
+  // octx.fillStyle = sideFade;
+  // octx.fillRect(0, 0, tileSize, tileSize);
 
   cachedShadowMask = off;
   cachedShadowMaskTile = tileSize;
