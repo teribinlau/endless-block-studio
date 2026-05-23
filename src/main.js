@@ -287,13 +287,38 @@ const materialPresets = {
     clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
     color: '#b87333'
   },
+  'chrome-plated': {
+    // Electroplated chrome — full metal with an extra clearcoat layer
+    // that produces the trademark "wet mirror" depth.
+    roughness: 0.04, metalness: 1.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.50, sheen: 0.00, iridescence: 0.00,
+    color: '#f0f2f5'
+  },
 
-  // ── Stone & Ceramic ──────────────────────────────────────────────────
+  // ── Stone, Wood & Ceramic ────────────────────────────────────────────
   terracotta: {
     roughness: 0.95, metalness: 0.00,
     transmission: 0.00, thickness: 0.0, ior: 1.50,
     clearcoat: 0.00, sheen: 0.00, iridescence: 0.00,
     color: '#c46a3c'
+  },
+  marble: {
+    // Polished marble — very smooth low-roughness surface, light clearcoat,
+    // and a touch of transmission/thickness to fake the subsurface glow
+    // characteristic of real marble slabs.
+    roughness: 0.10, metalness: 0.00,
+    transmission: 0.08, thickness: 4.0, ior: 1.52,
+    clearcoat: 0.60, sheen: 0.00, iridescence: 0.00,
+    color: '#f5f0e8'
+  },
+  wood: {
+    // Natural matte wood — high roughness, warm brown base, and a thin
+    // clearcoat hinting at an oiled finish (without making it look lacquered).
+    roughness: 0.85, metalness: 0.00,
+    transmission: 0.00, thickness: 0.0, ior: 1.50,
+    clearcoat: 0.15, sheen: 0.00, iridescence: 0.00,
+    color: '#8b5a2b'
   },
 
   // ── Special Optics ───────────────────────────────────────────────────
