@@ -3365,6 +3365,22 @@ function handleCustomFile(file) {
     setupModelInScene(rootObject);
     autoScaleModel();
     displayProjectName.textContent = `Custom / ${file.name}`;
+
+    // Uploading a custom 3D model means the user wants to focus on THAT
+    // model — not the heightmap currently driven by the default sample
+    // video. Switch mediaMapping away from 'heightmap' so the Block
+    // Effect uses the model voxelizer (and so the original model isn't
+    // hidden by the heightmap branch of applyMediaMapping).
+    if (mediaMapping.value === 'heightmap') {
+      mediaMapping.value = 'none';
+      applyMediaMapping();
+    }
+    // If Block Mode is already on, re-run it now that the new model
+    // is in place so the user sees voxels immediately.
+    if (blockMode.checked) {
+      updateBlockEffect();
+    }
+
     showLoader(false);
   };
   const fail = (err, label) => {
