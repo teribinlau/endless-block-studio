@@ -2034,10 +2034,13 @@ function render2D() {
       ctx2D.rect(x, cyp, tileSize, tileSize);
       ctx2D.clip();
 
-      // Radial gradient — dark at the stud edge, transparent at ~1.4× radius
-      const grad = ctx2D.createRadialGradient(cxp, cyp, studR, cxp, cyp, studR * 1.42);
-      grad.addColorStop(0, `rgba(${dR},${dG},${dB},0.72)`);
-      grad.addColorStop(1, `rgba(${dR},${dG},${dB},0)`);
+      // Radial gradient — dark at the stud edge, smoothly fading to
+      // transparent at ~1.6× radius. Three stops give an ease-out curve
+      // closer to a real cast shadow than a straight linear blend.
+      const grad = ctx2D.createRadialGradient(cxp, cyp, studR, cxp, cyp, studR * 1.6);
+      grad.addColorStop(0.00, `rgba(${dR},${dG},${dB},0.82)`);
+      grad.addColorStop(0.55, `rgba(${dR},${dG},${dB},0.28)`);
+      grad.addColorStop(1.00, `rgba(${dR},${dG},${dB},0)`);
       ctx2D.fillStyle = grad;
       ctx2D.fillRect(x, y, tileSize, tileSize);
       ctx2D.restore();
