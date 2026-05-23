@@ -2019,23 +2019,26 @@ function render2D() {
       ctx2D.fillStyle = `rgb(${R},${G},${B})`;
       ctx2D.fillRect(x, y, tileSize, tileSize);
 
-      // 2. Bottom shadow inside the stud area — same-hue darker, vertical
-      //    linear gradient from transparent (top) to dark (bottom), clipped
-      //    to the stud circle.
+      // 2. Bottom shadow OUTSIDE the stud — vertical same-hue darker
+      //    gradient applied to the brick body, but clipped to exclude
+      //    the stud circle (so the stud stays pure base colour).
       ctx2D.save();
       ctx2D.beginPath();
-      ctx2D.arc(cxp, cyp, studR, 0, Math.PI * 2);
-      ctx2D.clip();
+      // Even-odd clip: full brick rect minus the stud circle = brick body
+      // with a circular hole punched out.
+      ctx2D.rect(x, y, tileSize, tileSize);
+      ctx2D.arc(cxp, cyp, studR, 0, Math.PI * 2, true);
+      ctx2D.clip('evenodd');
 
-      const grad = ctx2D.createLinearGradient(cxp, cyp - studR * 0.25, cxp, cyp + studR);
+      const grad = ctx2D.createLinearGradient(cxp, cyp - studR * 0.2, cxp, y + tileSize);
       grad.addColorStop(0, `rgba(${dR},${dG},${dB},0)`);
-      grad.addColorStop(1, `rgba(${dR},${dG},${dB},0.88)`);
+      grad.addColorStop(1, `rgba(${dR},${dG},${dB},0.75)`);
       ctx2D.fillStyle = grad;
       ctx2D.fillRect(x, y, tileSize, tileSize);
       ctx2D.restore();
 
       // 3. Top-arc highlight — bright same-hue stroke covering ~120° of
-      //    the upper rim of the circle.
+      //    the upper rim of the stud circle.
       ctx2D.strokeStyle = `rgb(${hR},${hG},${hB})`;
       ctx2D.lineWidth = highlightLineW;
       ctx2D.beginPath();
