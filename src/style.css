@@ -341,6 +341,20 @@ body {
   margin: 0;
 }
 
+/* Inline "2D" tag next to control labels that only apply in 2D mode */
+.hint-2d {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--accent-color);
+  background: var(--accent-glow);
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
 /* Video export controls */
 .video-export-row {
   display: flex;

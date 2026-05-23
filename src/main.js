@@ -113,6 +113,8 @@ const blockResolution = document.getElementById('block-resolution');
 const valBlockResolution = document.getElementById('val-block-resolution');
 const blockGap = document.getElementById('block-gap');
 const valBlockGap = document.getElementById('val-block-gap');
+const shadowSpread = document.getElementById('shadow-spread');
+const valShadowSpread = document.getElementById('val-shadow-spread');
 
 // Media Upload Inputs
 const mediaUpload = document.getElementById('media-upload');
@@ -1225,6 +1227,13 @@ function setupUIEventListeners() {
     debouncedTriggerBlockUpdate();
   });
 
+  // Shadow Spread — 2D only. Drives outerR multiplier in getShadowMask().
+  shadowSpread.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    valShadowSpread.textContent = `${val.toFixed(2)}×`;
+    if (viewMode === '2d') render2D();
+  });
+
   // 9. Media Upload Listeners
   mediaUploadZone.addEventListener('click', () => mediaUpload.click());
   
@@ -2023,11 +2032,15 @@ function resize2DCanvas() {
    destination-in to soften the top edge without affecting the brick body. */
 let cachedShadowMask = null;
 let cachedShadowMaskTile = 0;
+let cachedShadowMaskSpread = 0;   // outerR multiplier baked into cached mask
 let cachedHighlightMask = null;
 let cachedHighlightMaskTile = 0;
 
 function getShadowMask(tileSize, studR) {
-  if (cachedShadowMask && cachedShadowMaskTile === tileSize) return cachedShadowMask;
+  const spread = shadowSpread ? parseFloat(shadowSpread.value) : 1.8;
+  if (cachedShadowMask
+      && cachedShadowMaskTile   === tileSize
+      && cachedShadowMaskSpread === spread) return cachedShadowMask;
 
   const off = document.createElement('canvas');
   off.width  = tileSize;
@@ -2036,13 +2049,11 @@ function getShadowMask(tileSize, studR) {
   const half = tileSize / 2;
 
   // Crescent shadow — the area between the stud's silhouette (inner) and a
-  // much larger outer circle around it, restricted to the bottom half.
-  // Shape: dark crescent hugging the stud's lower curve, gradually
-  // extending wide enough to reach the brick edges before fading out.
-  // Equivalent to how a cylinder's silhouette appears when projected
-  // outward from below — wide in the middle, tapering at the sides.
-  const outerR = studR * 1.8;       // outer extent — wide enough to feel substantial
-  const innerR = studR;             // inner boundary == stud silhouette
+  // larger outer circle around it, restricted to the bottom half via the
+  // destination-in fade further below. The outerR multiplier (Shadow Spread
+  // slider) controls how far the shadow extends before fading to zero.
+  const outerR = studR * spread;
+  const innerR = studR;
 
   octx.save();
 
@@ -2077,6 +2088,7 @@ function getShadowMask(tileSize, studR) {
 
   cachedShadowMask = off;
   cachedShadowMaskTile = tileSize;
+  cachedShadowMaskSpread = spread;
   return off;
 }
 
