@@ -1936,6 +1936,56 @@ function resize2DCanvas() {
   ctx2D.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
+/* Cached shadow mask — a transparent canvas containing only the half-donut
+   shadow as black pixels. Drawing this on top of any coloured brick will
+   darken it in the shadow region (source-over with black is equivalent to
+   a same-hue darken). Building it inside an offscreen canvas lets us use
+   destination-in to soften the top edge without affecting the brick body. */
+let cachedShadowMask = null;
+let cachedShadowMaskTile = 0;
+
+function getShadowMask(tileSize, studR) {
+  if (cachedShadowMask && cachedShadowMaskTile === tileSize) return cachedShadowMask;
+
+  const off = document.createElement('canvas');
+  off.width  = tileSize;
+  off.height = tileSize;
+  const octx = off.getContext('2d');
+  const half = tileSize / 2;
+
+  octx.save();
+
+  // Clip to brick body minus stud (donut)
+  octx.beginPath();
+  octx.rect(0, 0, tileSize, tileSize);
+  octx.arc(half, half, studR, 0, Math.PI * 2, true);
+  octx.clip('evenodd');
+
+  // Radial shadow — black with ease-out alpha falloff
+  const grad = octx.createRadialGradient(half, half, studR, half, half, studR * 1.6);
+  grad.addColorStop(0.00, 'rgba(0,0,0,0.55)');
+  grad.addColorStop(0.55, 'rgba(0,0,0,0.22)');
+  grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+  octx.fillStyle = grad;
+  octx.fillRect(0, 0, tileSize, tileSize);
+
+  // Soft top fade — destination-in with a vertical alpha gradient keeps
+  // the bottom of the shadow and smoothly erases the upper portion.
+  // No hard horizontal line.
+  octx.globalCompositeOperation = 'destination-in';
+  const fade = octx.createLinearGradient(0, half - studR * 0.55, 0, half + studR * 0.30);
+  fade.addColorStop(0, 'rgba(0,0,0,0)');  // top: fully erase
+  fade.addColorStop(1, 'rgba(0,0,0,1)');  // bottom: keep
+  octx.fillStyle = fade;
+  octx.fillRect(0, 0, tileSize, tileSize);
+
+  octx.restore();
+
+  cachedShadowMask = off;
+  cachedShadowMaskTile = tileSize;
+  return off;
+}
+
 function render2D() {
   if (viewMode !== '2d') return;
 
@@ -1986,6 +2036,9 @@ function render2D() {
   const arcStart = Math.PI * 7 / 6;   // ≈ 210°
   const arcEnd   = Math.PI * 11 / 6;  // ≈ 330°
 
+  // Pre-rendered shadow mask (one per tileSize) — already has soft top fade
+  const shadowMask = getShadowMask(tileSize, studR);
+
   const useSnap = blockLegoSnap.checked; // optional; defaults checked
 
   for (let r = 0; r < rows; r++) {
@@ -2002,13 +2055,10 @@ function render2D() {
       const G = Math.max(0, Math.min(255, Math.round(col.g * 255)));
       const B = Math.max(0, Math.min(255, Math.round(col.b * 255)));
 
-      // Same-hue brighter (toward white) and darker (toward black) variants
+      // Same-hue brighter variant (for the top-arc highlight)
       const hR = Math.min(255, R + Math.round((255 - R) * 0.32));
       const hG = Math.min(255, G + Math.round((255 - G) * 0.32));
       const hB = Math.min(255, B + Math.round((255 - B) * 0.32));
-      const dR = Math.round(R * 0.40);
-      const dG = Math.round(G * 0.40);
-      const dB = Math.round(B * 0.40);
 
       const x = offsetX + c * tileSize;
       const y = offsetY + r * tileSize;
@@ -2019,31 +2069,11 @@ function render2D() {
       ctx2D.fillStyle = `rgb(${R},${G},${B})`;
       ctx2D.fillRect(x, y, tileSize, tileSize);
 
-      // 2. Bottom shadow — a half-donut hugging the lower edge of the stud.
-      //    Simulates the cast shadow of the dome: darkest right at the
-      //    stud's bottom rim, fading to transparent a short distance
-      //    outward. Constrained to the bottom semicircle only.
-      ctx2D.save();
-      // Clip A: brick body minus stud interior (even-odd donut shape)
-      ctx2D.beginPath();
-      ctx2D.rect(x, y, tileSize, tileSize);
-      ctx2D.arc(cxp, cyp, studR, 0, Math.PI * 2, true);
-      ctx2D.clip('evenodd');
-      // Clip B: keep only the half below the stud's centre line
-      ctx2D.beginPath();
-      ctx2D.rect(x, cyp, tileSize, tileSize);
-      ctx2D.clip();
-
-      // Radial gradient — dark at the stud edge, smoothly fading to
-      // transparent at ~1.6× radius. Three stops give an ease-out curve
-      // closer to a real cast shadow than a straight linear blend.
-      const grad = ctx2D.createRadialGradient(cxp, cyp, studR, cxp, cyp, studR * 1.6);
-      grad.addColorStop(0.00, `rgba(${dR},${dG},${dB},0.82)`);
-      grad.addColorStop(0.55, `rgba(${dR},${dG},${dB},0.28)`);
-      grad.addColorStop(1.00, `rgba(${dR},${dG},${dB},0)`);
-      ctx2D.fillStyle = grad;
-      ctx2D.fillRect(x, y, tileSize, tileSize);
-      ctx2D.restore();
+      // 2. Stud shadow — composite the cached black mask. Black-over-colour
+      //    via source-over yields a same-hue darken; the mask already has
+      //    the half-donut shape + soft vertical fade baked in, so no hard
+      //    horizontal seam can appear at the stud's equator.
+      ctx2D.drawImage(shadowMask, x, y);
 
       // 3. Top-arc highlight — bright same-hue stroke covering ~120° of
       //    the upper rim of the stud circle.
