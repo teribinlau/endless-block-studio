@@ -49,6 +49,17 @@ let mediaAspect = 1.0;
 
 // Voxel UV and Color states
 let voxelUVMap = new Map(); // `${x},${y},${z}` -> THREE.Vector2
+// Parallel to voxelUVMap — index into voxelizeMesh's returned meshList.
+// Lets us look up which source mesh (and hence which material/texture)
+// a voxel came from, so Block Effect can sample real per-piece colours
+// instead of only using physicalMaterial.color.
+let voxelMeshIdxMap = new Map(); // `${x},${y},${z}` -> number
+let voxelizedMeshList = [];      // [mesh, mesh, ...] in idx order
+
+// Cache: Texture -> { canvas, ctx, w, h } so each colour texture is only
+// drawn to an offscreen canvas once per session, even if Block Effect is
+// regenerated multiple times.
+const textureSampleCache = new WeakMap();
 let voxelKeys = []; // Stores keys of voxels for fast iteration in update loop
 
 // Media State
@@ -1853,6 +1864,21 @@ function updateBlockEffect() {
           baseColor = snapToLegoColor(baseColor);
         }
 
+        // Pre-build a per-mesh colour sampler when the user wants to keep
+        // the source model's materials. Each entry resolves (uv -> Color)
+        // by sampling that mesh's basecolor texture × material.color, or
+        // just the flat colour if there's no texture. Samplers are built
+        // once here, then called once per voxel below.
+        //
+        // Skipped when:
+        //   • Use file's own materials is unchecked (use the global baseColor)
+        //   • A media mapping is overriding model colour (video → model)
+        const useFileMaterials = (modelKeepMaterials && modelKeepMaterials.checked)
+          && !(isMediaLoaded && mediaMapping.value === 'model');
+        const matSamplers = useFileMaterials
+          ? voxelizedMeshList.map((m) => createMaterialSampler(m.material))
+          : null;
+
         const dummy = new THREE.Object3D();
         const studDummy = new THREE.Object3D();
         let idx = 0;
@@ -1861,7 +1887,7 @@ function updateBlockEffect() {
           const posX = min.x + (x + 0.5) * voxelSize;
           const posY = min.y + (y + 0.5) * voxelSizeY;
           const posZ = min.z + (z + 0.5) * voxelSize;
-          
+
           dummy.position.set(posX, posY, posZ);
           dummy.updateMatrix();
           voxelInstancedMesh.setMatrixAt(idx, dummy.matrix);
@@ -1872,16 +1898,26 @@ function updateBlockEffect() {
             voxelStudInstancedMesh.setMatrixAt(idx, studDummy.matrix);
           }
 
-          // Determine color
+          // Determine color — three sources, in priority order:
+          //   1. Uploaded media (video/image) mapped to 'model'
+          //   2. Source mesh's own material (texture sample × material.color)
+          //   3. Global physicalMaterial.color
           let colorToUse = baseColor.clone();
           if (isMediaLoaded && mediaMapping.value === 'model') {
             const uv = voxelUVMap.get(key);
             if (uv) {
               colorToUse = getSampledPixelColor(uv.x, uv.y);
             }
-            if (blockLegoSnap.checked) {
-              colorToUse = snapToLegoColor(colorToUse);
+          } else if (matSamplers) {
+            const meshIdx = voxelMeshIdxMap.get(key);
+            const sampler = (meshIdx !== undefined) ? matSamplers[meshIdx] : null;
+            const uv = voxelUVMap.get(key);
+            if (sampler && uv) {
+              colorToUse = sampler(uv);
             }
+          }
+          if (blockLegoSnap.checked) {
+            colorToUse = snapToLegoColor(colorToUse);
           }
           voxelInstancedMesh.setColorAt(idx, colorToUse);
           if (voxelStudInstancedMesh) {
@@ -1933,8 +1969,76 @@ function updateBlockEffect() {
 }
 
 // Surface voxelization algorithm in local coordinate space
+// Returns a function (uv: Vector2) -> THREE.Color that resolves the
+// material's colour at the given UV. Handles three common cases:
+//   • Material has a colour texture (mat.map)  → sample pixel × mat.color
+//   • Material has only a colour (no map)      → return mat.color
+//   • No usable material                        → fall back to physicalMaterial.color
+// Multi-material arrays are simplified to [0]. Texture images are drawn
+// to an offscreen canvas once and cached per Texture via WeakMap.
+function createMaterialSampler(material) {
+  const fallback = () => physicalMaterial.color.clone();
+  if (!material) return fallback;
+  // Multi-material → pick the first slot. Most imported models use single.
+  const mat = Array.isArray(material) ? material[0] : material;
+  if (!mat) return fallback;
+
+  const baseColor = (mat.color && mat.color.isColor) ? mat.color.clone() : null;
+  const map = mat.map || null;
+
+  // Best case: colour texture present. Bake it to a canvas (cached) and
+  // sample by UV. Multiply by mat.color (the PBR baseColorFactor).
+  if (map && map.image) {
+    let entry = textureSampleCache.get(map);
+    if (!entry) {
+      const img = map.image;
+      // Image dimensions can come from <img>, <canvas>, ImageBitmap, or <video>
+      const w = img.width || img.videoWidth || 0;
+      const h = img.height || img.videoHeight || 0;
+      if (w > 0 && h > 0) {
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        try {
+          ctx.drawImage(img, 0, 0, w, h);
+          entry = { canvas: c, ctx, w, h };
+          textureSampleCache.set(map, entry);
+        } catch (e) {
+          // Cross-origin tainted canvas, etc. → fall back to flat colour.
+          entry = null;
+        }
+      }
+    }
+    if (entry) {
+      const { ctx, w, h } = entry;
+      const mul = baseColor || new THREE.Color(0xffffff);
+      const out = new THREE.Color();
+      return (uv) => {
+        // Wrap UVs into [0,1) the simple way — matches RepeatWrapping
+        // behaviour close enough for Block sampling. Three.js itself
+        // uses fract() in the shader.
+        const u = ((uv.x % 1) + 1) % 1;
+        const v = ((uv.y % 1) + 1) % 1;
+        const px = Math.min(w - 1, Math.floor(u * w));
+        // Flip V — image y is top-down, UVs are bottom-up
+        const py = Math.min(h - 1, Math.floor((1 - v) * h));
+        const data = ctx.getImageData(px, py, 1, 1).data;
+        out.setRGB(data[0] / 255, data[1] / 255, data[2] / 255);
+        out.r *= mul.r; out.g *= mul.g; out.b *= mul.b;
+        return out.clone();
+      };
+    }
+  }
+
+  // No texture → just use the flat colour factor.
+  if (baseColor) return () => baseColor.clone();
+  return fallback;
+}
+
 function voxelizeMesh(model, resolution) {
   voxelUVMap.clear();
+  voxelMeshIdxMap.clear();
+  voxelizedMeshList = [];
   const voxels = new Set();
   
   // Compute local bounding box of child meshes
@@ -1977,6 +2081,9 @@ function voxelizeMesh(model, resolution) {
   const tempUV2 = new THREE.Vector2();
   const tempUV3 = new THREE.Vector2();
 
+  // currentMeshIdx is updated inside the traverse loop so addVoxel knows
+  // which mesh produced each sample point.
+  let currentMeshIdx = -1;
   const addVoxel = (p, uv) => {
     const x = Math.floor((p.x - min.x) / voxelSize);
     const y = Math.floor((p.y - min.y) / voxelSizeY);
@@ -1984,10 +2091,13 @@ function voxelizeMesh(model, resolution) {
     const key = `${x},${y},${z}`;
     voxels.add(key);
     voxelUVMap.set(key, uv);
+    if (currentMeshIdx >= 0) voxelMeshIdxMap.set(key, currentMeshIdx);
   };
 
   model.traverse((child) => {
     if (child.isMesh && !child.isInstancedMesh && child.geometry) {
+      currentMeshIdx = voxelizedMeshList.length;
+      voxelizedMeshList.push(child);
       const geom = child.geometry;
       const posAttr = geom.attributes.position;
       const uvAttr = geom.attributes.uv;
