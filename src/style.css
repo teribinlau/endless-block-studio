@@ -1347,6 +1347,49 @@ input[type="text"], input[type="number"], input[type="color"],
   border-radius: 2px !important; /* hint of brick block, not a circle */
 }
 
+/* ─── ilili lab wordmark (header logo) ─────────────────────────────────
+   Uses CSS mask-image so the SVG shapes act as a stencil and the visible
+   fill is whatever `background-color` is set to. With `currentColor` the
+   logo automatically inherits the heading text colour — black in light
+   mode, near-white in dark mode — without needing two SVG files. */
+.ilili-logo {
+  display: inline-block;
+  background-color: currentColor !important;
+  -webkit-mask-image: url('/ilili-logo.svg');
+          mask-image: url('/ilili-logo.svg');
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: contain;
+          mask-size: contain;
+  /* Aspect ratio of the SVG viewBox is 559 / 191 ≈ 2.93 — width follows */
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+/* Slot 1: where the old logo dot lived — small wordmark next to title.
+   Height tuned to roughly match the heading cap-height. */
+.logo-mark {
+  height: 18px;
+  width: 53px;  /* 18 × 2.93 */
+  color: var(--text-main);
+  /* Cancel the OpenCode override that gave .logo-dot a square fill */
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+/* Slot 2: where the PRO pill lived — a touch smaller, sits to the right
+   of the heading. */
+.logo-badge {
+  height: 14px;
+  width: 41px;  /* 14 × 2.93 */
+  color: var(--text-main);
+  opacity: 0.85;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+/* Dark mode swap is automatic via currentColor — --text-main flips, so
+   the logo flips with it. No explicit dark-mode block needed. */
+
 /* 8. Preset cards — flat hairline tiles */
 .preset-card {
   background: transparent !important;
