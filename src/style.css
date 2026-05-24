@@ -770,7 +770,7 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 /* Form Select / Checkboxes */
-.form-select {
+.form-select, .form-input {
   width: 100%;
   background-color: var(--input-bg);
   border: 1px solid var(--sidebar-border);
@@ -782,6 +782,10 @@ input[type="color"]::-webkit-color-swatch {
   outline: none;
   cursor: pointer;
   transition: border-color var(--transition-speed);
+}
+.form-input {
+  cursor: text;
+  box-sizing: border-box;
 }
 
 .form-select:focus {

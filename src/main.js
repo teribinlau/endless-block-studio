@@ -18,7 +18,21 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutlinePass }     from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { GTAOPass }        from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { TextGeometry }       from 'three/examples/jsm/geometries/TextGeometry.js';
+import { FontLoader }         from 'three/examples/jsm/loaders/FontLoader.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+// Typeface.json fonts bundled with the three npm package. We import as
+// modules so they're code-split into their own chunks (~70 KB each gzipped,
+// only fetched on first text generation).
+const FONT_URLS = {
+  helvetiker_bold:    () => import('three/examples/fonts/helvetiker_bold.typeface.json'),
+  helvetiker_regular: () => import('three/examples/fonts/helvetiker_regular.typeface.json'),
+  optimer_bold:       () => import('three/examples/fonts/optimer_bold.typeface.json'),
+  optimer_regular:    () => import('three/examples/fonts/optimer_regular.typeface.json'),
+  gentilis_bold:      () => import('three/examples/fonts/gentilis_bold.typeface.json'),
+  gentilis_regular:   () => import('three/examples/fonts/gentilis_regular.typeface.json'),
+};
 
 // --- State Variables ---
 let scene, camera, renderer, controls;
@@ -202,7 +216,124 @@ const videoExportProgressText = document.getElementById('video-export-progress-t
 let isExportingVideo = false;
 const modelUpload = document.getElementById('model-upload');
 const uploadZone = document.getElementById('upload-zone');
-const presetCards = document.querySelectorAll('.preset-card');
+
+// ─── Color Overlay refs (multiplicative tint + emissive glow) ───────────
+const matTintColor       = document.getElementById('material-tint-color');
+const tintColorHex       = document.getElementById('tint-color-hex');
+const matTintReset       = document.getElementById('material-tint-reset');
+const matEmissiveColor   = document.getElementById('material-emissive-color');
+const emissiveColorHex   = document.getElementById('emissive-color-hex');
+const matEmissiveReset   = document.getElementById('material-emissive-reset');
+const matEmissiveInt     = document.getElementById('material-emissive-intensity');
+const valEmissiveInt     = document.getElementById('val-emissive-intensity');
+
+// Overlay state — preset.color is the "base", these are multiplied onto it.
+// White tint (1,1,1) = identity. Black emissive = off.
+const tintColor       = new THREE.Color('#ffffff');
+const baseMaterialColor = new THREE.Color('#ffffff'); // last preset's color, before tint
+
+// ─── 3D Text refs (TextGeometry addon) ─────────────────────────────────
+const textContentEl = document.getElementById('text-content');
+const textFontEl    = document.getElementById('text-font');
+const textSizeEl    = document.getElementById('text-size');
+const valTextSize   = document.getElementById('val-text-size');
+const textDepthEl   = document.getElementById('text-depth');
+const valTextDepth  = document.getElementById('val-text-depth');
+const textCurveEl   = document.getElementById('text-curve');
+const valTextCurve  = document.getElementById('val-text-curve');
+const textBevelEl   = document.getElementById('text-bevel');
+const textAddBtn    = document.getElementById('text-add');
+const textRemoveBtn = document.getElementById('text-remove');
+
+// Font cache so the JSON file is only parsed once per face per session.
+const fontLoader = new FontLoader();
+const fontCache  = new Map(); // fontKey → THREE.Font instance
+
+async function getFont(fontKey) {
+  if (fontCache.has(fontKey)) return fontCache.get(fontKey);
+  const loaderFn = FONT_URLS[fontKey];
+  if (!loaderFn) return null;
+  const mod = await loaderFn();
+  // typeface.json is shipped as a JSON module → default export is the object
+  const font = fontLoader.parse(mod.default || mod);
+  fontCache.set(fontKey, font);
+  return font;
+}
+
+// Builds 3D text and installs it as the active currentModel. This routes
+// through setupModelInScene() so:
+//   • the previous model (default video sample, uploaded GLB/STL/etc.)
+//     is removed and its voxelization is cleared — no more overlapping
+//   • Block Effect / Model Transform / focus camera all "just work"
+//   • the text inherits the live physicalMaterial like any other model
+async function buildOrUpdateText() {
+  const text = (textContentEl.value || 'STUD').slice(0, 32);
+  const fontKey = textFontEl.value;
+  const size = parseFloat(textSizeEl.value);
+  const depth = parseFloat(textDepthEl.value);
+  const curve = parseInt(textCurveEl.value, 10);
+  const bevel = textBevelEl.checked;
+
+  const font = await getFont(fontKey);
+  if (!font) {
+    console.warn('[text] font failed to load:', fontKey);
+    return;
+  }
+
+  // Build the geometry. `depth` in r163+ replaced the old `height` prop.
+  const geom = new TextGeometry(text, {
+    font,
+    size,
+    depth,
+    curveSegments: curve,
+    bevelEnabled: bevel,
+    bevelThickness: bevel ? Math.max(0.5, depth * 0.15) : 0,
+    bevelSize:      bevel ? Math.max(0.3, size * 0.04) : 0,
+    bevelOffset:    0,
+    bevelSegments:  bevel ? 3 : 0,
+  });
+  geom.computeBoundingBox();
+
+  // CRITICAL — turn off any active heightmap mapping FIRST, before adding
+  // the text. The default sample loads with mediaMapping='heightmap', and
+  // the animate loop calls updateBlockHeightmap() every frame. If we leave
+  // it on, the heightmap voxels get re-created the next frame and overlap
+  // the text (the bug shown in the user's screenshot).
+  if (mediaMapping && mediaMapping.value === 'heightmap') {
+    mediaMapping.value = 'none';
+    if (typeof applyMediaMapping === 'function') applyMediaMapping();
+  }
+
+  // Wrap the bare TextMesh in a Group so setupModelInScene's traversal
+  // (which expects an Object3D root) treats it like any imported model.
+  const mesh = new THREE.Mesh(geom, physicalMaterial);
+  mesh.name = '__textMesh';
+  const root = new THREE.Group();
+  root.name = '__textRoot';
+  root.add(mesh);
+
+  // setupModelInScene re-applies physicalMaterial, clears voxel caches
+  // (both regular and heightmap paths share voxelInstancedMesh refs),
+  // re-centers, focuses orbit, and triggers Block Effect if it's on.
+  setupModelInScene(root);
+}
+
+function removeTextMesh() {
+  // If the current model is our text root, tear it down. Mirrors the
+  // pattern setupModelInScene uses when a new model replaces the old.
+  if (currentModel && currentModel.name === '__textRoot') {
+    scene.remove(currentModel);
+    currentModel.traverse((c) => {
+      if (c.isMesh && c.geometry) c.geometry.dispose();
+    });
+    currentModel = null;
+    modelStats = { meshes: 0, vertices: 0, triangles: 0 };
+    // Sync the camera info panel inline (no central updater exists).
+    if (infoMeshes)    infoMeshes.textContent    = '0';
+    if (infoVertices)  infoVertices.textContent  = '0';
+    if (infoTriangles) infoTriangles.textContent = '0';
+  }
+}
 
 // --- Create Global Material ---
 // Physically based material controlled by presets & inputs
@@ -445,6 +576,11 @@ function updateVoxelMaterials() {
       mat.iridescence = physicalMaterial.iridescence;
       mat.iridescenceIOR = physicalMaterial.iridescenceIOR;
       mat.iridescenceThicknessRange = physicalMaterial.iridescenceThicknessRange;
+      // Color Overlay — emissive glow (independent of lighting)
+      if (mat.emissive && physicalMaterial.emissive) {
+        mat.emissive.copy(physicalMaterial.emissive);
+      }
+      mat.emissiveIntensity = physicalMaterial.emissiveIntensity ?? 1;
       // Texture forwarding — wood: albedo+normal+AO, mat: basecolor+normal+
       // metalness+roughness. We forward whichever ones are set; the rest
       // stay null and the per-material scalars take over.
@@ -489,7 +625,9 @@ function applyMaterialPreset(presetKey) {
   physicalMaterial.transmission = preset.transmission;
   physicalMaterial.thickness    = preset.thickness;
   physicalMaterial.ior          = preset.ior;
-  physicalMaterial.color.set(preset.color);
+  // Remember the preset's intended color, then multiply by user tint.
+  baseMaterialColor.set(preset.color);
+  physicalMaterial.color.copy(baseMaterialColor).multiply(tintColor);
   physicalMaterial.transparent  = preset.transmission > 0;
 
   // ── Textured presets (wood + Mat Works PBR sets) ──────────────────────
@@ -614,6 +752,47 @@ let postFxEnabled = true;        // master switch — false uses renderer.render
 // WebGPU experimental renderer (loaded dynamically on toggle / reload)
 let useWebGPU = false;
 
+// ─── Performance Mode ──────────────────────────────────────────────────
+// Bundles four GPU savings, toggled via the "Performance Mode" checkbox:
+//   1. Frame rate cap @ 60 FPS (animate() bails early on excess rAF ticks)
+//   2. Pixel ratio × 0.75 (cuts shaded pixel count ~44%)
+//   3. transmissionResolutionScale = 0.5 (glass pass at half res ~4× cheaper)
+//   4. Auto-pause video element when document.hidden — rAF already pauses
+//      on hidden tabs, but a playing <video> keeps decoding & uploading.
+let perfMode = false;
+const PERF_FRAME_MS = 1000 / 60; // 60 FPS cap when perf mode is on
+let lastFrameTime = 0;
+const perfModeEl = document.getElementById('perf-mode');
+
+function applyPerfMode() {
+  if (!renderer) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (perfMode) {
+    renderer.setPixelRatio(Math.min(dpr * 0.75, 1.5));
+    if (composer) composer.setPixelRatio(Math.min(dpr * 0.75, 1.5));
+    if ('transmissionResolutionScale' in renderer) {
+      renderer.transmissionResolutionScale = 0.5;
+    }
+  } else {
+    renderer.setPixelRatio(Math.min(dpr, 2));
+    if (composer) composer.setPixelRatio(Math.min(dpr, 2));
+    if ('transmissionResolutionScale' in renderer) {
+      renderer.transmissionResolutionScale = 1.0;
+    }
+  }
+}
+
+// Pause/resume video when tab visibility changes — saves the video decode
+// pipeline + the texture upload that runs every frame.
+document.addEventListener('visibilitychange', () => {
+  if (!perfMode) return;
+  if (typeof loadedMediaElement !== 'undefined' && loadedMediaElement &&
+      loadedMediaType === 'video') {
+    if (document.hidden) loadedMediaElement.pause();
+    // Don't auto-play on return — that would break user intent if they paused.
+  }
+});
+
 // --- Step 1: Initialize Three.js Environment ---
 async function init() {
   // 1. Scene Setup
@@ -660,6 +839,8 @@ async function init() {
     });
   }
   renderer.setSize(window.innerWidth, window.innerHeight);
+  // Pixel ratio is gated through applyPerfMode() — perf mode multiplies the
+  // device pixel ratio by 0.75 to cut shaded pixel work ~44%.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -697,6 +878,9 @@ async function init() {
     : transformControls;
   scene.add(transformHelper);
   transformHelper.visible = false; // hidden until user selects a mode
+  // Tag the gizmo so OutlinePass never strokes the arrows / rings.
+  transformHelper.userData.__outlineSkip = true;
+  transformHelper.traverse((c) => { c.userData.__outlineSkip = true; });
 
   // Uncheck the auto-rotate checkbox to match the actual state
   animAutoRotate.checked = false;
@@ -832,6 +1016,8 @@ function setupPostFx() {
   composer = new EffectComposer(renderer);
   composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   composer.setSize(w, h);
+  // Apply perf-mode pixel ratio override now that composer exists.
+  applyPerfMode();
 
   // 1. Base scene render
   composer.addPass(new RenderPass(scene, camera));
@@ -864,14 +1050,20 @@ function setupPostFx() {
   composer.addPass(new OutputPass());
 }
 
-/* Sync outline pass's selectedObjects to whatever voxel meshes are live. */
+/* Sync outline pass's selectedObjects to everything currently in the scene
+   that should receive a stroke — voxel meshes AND the uploaded/text model.
+   OutlinePass traverses selected Object3Ds internally, so passing a Group
+   (currentModel) auto-includes all child meshes. The transform-gizmo
+   helper is tagged with __outlineSkip and excluded to avoid stroking the
+   gizmo arrows. */
 function refreshOutlineSelection() {
   if (!outlinePass) return;
-  outlinePass.selectedObjects = [
-    voxelInstancedMesh,
-    voxelPlateInstancedMesh,
-    voxelStudInstancedMesh,
-  ].filter(Boolean);
+  const sel = [];
+  if (currentModel) sel.push(currentModel);
+  if (voxelInstancedMesh)      sel.push(voxelInstancedMesh);
+  if (voxelPlateInstancedMesh) sel.push(voxelPlateInstancedMesh);
+  if (voxelStudInstancedMesh)  sel.push(voxelStudInstancedMesh);
+  outlinePass.selectedObjects = sel;
 }
 
 /* Build the brick / plate body geometry based on the Voxel Primitive
@@ -1325,34 +1517,175 @@ function clearInstancedMesh(mesh) {
 // No longer needs a merged geometry since box base and studs are rendered as separate InstancedMeshes
 // to prevent vertical stretching of studs in heightmap mode.
 
-// --- LEGO Color Palette: 24 colors covering standard, Earth, and pastel tones
-// to ensure snapped colors match uploaded images with high fidelity.
-const LEGO_PALETTE = [
-  new THREE.Color('#FFFFFF'), // White
-  new THREE.Color('#1B2A34'), // Black
-  new THREE.Color('#9BABAC'), // Light Grey / Medium Stone Grey
-  new THREE.Color('#5C5C5C'), // Dark Grey / Dark Stone Grey
-  new THREE.Color('#C91A09'), // Red
-  new THREE.Color('#0055BF'), // Blue
-  new THREE.Color('#F2CD37'), // Yellow
-  new THREE.Color('#237841'), // Green
-  new THREE.Color('#184632'), // Dark Green
-  new THREE.Color('#F57D11'), // Orange
-  new THREE.Color('#58251B'), // Reddish Brown
-  new THREE.Color('#DFB17B'), // Tan / Brick Yellow
-  new THREE.Color('#5A93DB'), // Medium Blue
-  new THREE.Color('#F45C96'), // Bright Pink
-  new THREE.Color('#E1A6E8'), // Lavender
-  new THREE.Color('#92397F'), // Magenta
-  new THREE.Color('#BBE90B'), // Lime Green
-  new THREE.Color('#708E7A'), // Sand Green
-  new THREE.Color('#0D325B'), // Dark Blue
-  new THREE.Color('#008F9B'), // Dark Turquoise / Teal
-  new THREE.Color('#CC8E56'), // Medium Nougat / Light Brown
-  new THREE.Color('#7C905C'), // Olive Green
-  new THREE.Color('#9FC3E9'), // Sky Blue / Bright Light Blue
-  new THREE.Color('#35211B'), // Dark Brown
+// ─── LEGO Official Color Palette — 130 colors ──────────────────────────
+// Source: BrickLink + LEGO Official color IDs, grouped by category:
+//   • Solid (56)            — Core production palette, what most bricks ship in
+//   • Transparent (24)      — Trans-clear / Trans-coloured for windows, lights
+//   • Pearl / Metallic (22) — Pearl & metallic-particle injection mix
+//   • Chrome / Milky (14)   — Mirror-chrome plating, milky / satin opal
+//   • Speckle / Marbled (14)— Two-tone unmixed, glitter, glow-in-dark
+//
+// Each entry has { name, hex, cat } — `cat` is one of 'solid' | 'trans' |
+// 'pearl' | 'chrome' | 'speckle'. The snap algorithm uses hex only; name
+// is retained for future tooltip / legend UI.
+const LEGO_COLOR_DEFS = [
+  // ── Solid Colors (56) ──────────────────────────────────────────────
+  { name: 'Red',                            hex: '#B40000', cat: 'solid' },
+  { name: 'Blue',                           hex: '#1E5AA8', cat: 'solid' },
+  { name: 'Yellow',                         hex: '#FAC800', cat: 'solid' },
+  { name: 'Dark Green',                     hex: '#184632', cat: 'solid' },
+  { name: 'Bright Light Yellow',            hex: '#FCD157', cat: 'solid' },
+  { name: 'Bright Light Orange',            hex: '#F8BB3D', cat: 'solid' },
+  { name: 'Flame Yellowish Orange',         hex: '#F49B00', cat: 'solid' },
+  { name: 'Tan (Brick Yellow)',             hex: '#B0A06F', cat: 'solid' },
+  { name: 'White',                          hex: '#F4F4F4', cat: 'solid' },
+  { name: 'Black',                          hex: '#1B2A34', cat: 'solid' },
+  { name: 'Earth Green (Dark Green)',       hex: '#003220', cat: 'solid' },
+  { name: 'Earth Blue (Dark Blue)',         hex: '#19325A', cat: 'solid' },
+  { name: 'Dark Tan (Sand Yellow)',         hex: '#947E5F', cat: 'solid' },
+  { name: 'Medium Dark Flesh',              hex: '#A7754D', cat: 'solid' },
+  { name: 'Light Nougat',                   hex: '#F6D3B6', cat: 'solid' },
+  { name: 'Sand Green',                     hex: '#708E7A', cat: 'solid' },
+  { name: 'Sand Blue',                      hex: '#5E748C', cat: 'solid' },
+  { name: 'Light Bluish Gray',              hex: '#A0A19F', cat: 'solid' },
+  { name: 'Dark Bluish Gray',               hex: '#646464', cat: 'solid' },
+  { name: 'Medium Blue',                    hex: '#488CC6', cat: 'solid' },
+  { name: 'Bright Purple (Medium Lavender)',hex: '#8F4D93', cat: 'solid' },
+  { name: 'Lavender',                       hex: '#B18CBF', cat: 'solid' },
+  { name: 'Lilac',                          hex: '#564E7A', cat: 'solid' },
+  { name: 'Medium Lavender',                hex: '#AC78B4', cat: 'solid' },
+  { name: 'Light Aqua',                     hex: '#ADC3C9', cat: 'solid' },
+  { name: 'Dark Azure',                     hex: '#007CA7', cat: 'solid' },
+  { name: 'Medium Azure',                   hex: '#36AEB4', cat: 'solid' },
+  { name: 'Bright Reddish Violet',          hex: '#92397F', cat: 'solid' },
+  { name: 'Light Purple (Bright Pink)',     hex: '#E4ADC8', cat: 'solid' },
+  { name: 'Vibrant Coral',                  hex: '#FF6D6A', cat: 'solid' },
+  { name: 'Reddish Orange',                 hex: '#FF4F00', cat: 'solid' }, // 2024
+  { name: 'Medium Dark Pink',               hex: '#F06D9C', cat: 'solid' },
+  { name: 'Light Pink',                     hex: '#FAADB8', cat: 'solid' },
+  { name: 'Dark Red',                       hex: '#6A0E1D', cat: 'solid' },
+  { name: 'Dark Purple',                    hex: '#5F285F', cat: 'solid' },
+  { name: 'Medium Nougat',                  hex: '#BB8053', cat: 'solid' },
+  { name: 'Flesh (Nougat)',                 hex: '#D09168', cat: 'solid' },
+  { name: 'Dark Flesh',                     hex: '#7C503A', cat: 'solid' },
+  { name: 'Reddish Brown',                  hex: '#692E14', cat: 'solid' },
+  { name: 'Umber Brown',                    hex: '#4D3226', cat: 'solid' }, // 2024
+  { name: 'Sienna Brown',                   hex: '#8A4A37', cat: 'solid' }, // 2024
+  { name: 'Dark Brown',                     hex: '#372115', cat: 'solid' },
+  { name: 'Medium Green',                   hex: '#43A553', cat: 'solid' },
+  { name: 'Dark Lime',                      hex: '#A5CA16', cat: 'solid' },
+  { name: 'Bright Yellowish Green (Lime)',  hex: '#A4BD30', cat: 'solid' },
+  { name: 'Olive Green',                    hex: '#77774E', cat: 'solid' },
+  { name: 'Bright Orange',                  hex: '#D67923', cat: 'solid' },
+  { name: 'Dark Orange',                    hex: '#A95519', cat: 'solid' },
+  { name: 'Sand Red',                       hex: '#88605E', cat: 'solid' }, // 绝版
+  { name: 'Sand Purple',                    hex: '#706672', cat: 'solid' }, // 绝版
+  { name: 'Old Light Gray (pre-2004)',      hex: '#969696', cat: 'solid' },
+  { name: 'Old Dark Gray (pre-2004)',       hex: '#5F5F5F', cat: 'solid' },
+  { name: 'Old Brown (pre-2004)',           hex: '#582A12', cat: 'solid' },
+  { name: 'Bright Green',                   hex: '#00AA44', cat: 'solid' },
+  { name: 'Medium Lime',                    hex: '#C1D862', cat: 'solid' },
+  { name: 'Mint (Pastel Mint)',             hex: '#A2CFC0', cat: 'solid' },
+
+  // ── Transparent Colors (24) ────────────────────────────────────────
+  { name: 'Trans-Light Blue',               hex: '#AEE9EF', cat: 'trans' },
+  { name: 'Trans-Dark Blue',                hex: '#002A6F', cat: 'trans' },
+  { name: 'Trans-Neon Green',               hex: '#C0F500', cat: 'trans' },
+  { name: 'Trans-Light Green',              hex: '#77E7B0', cat: 'trans' },
+  { name: 'Trans-Green',                    hex: '#008F39', cat: 'trans' },
+  { name: 'Trans-Neon Yellow',              hex: '#DAB000', cat: 'trans' },
+  { name: 'Trans-Light Orange',             hex: '#FFA100', cat: 'trans' },
+  { name: 'Trans-Orange',                   hex: '#F06C00', cat: 'trans' },
+  { name: 'Trans-Red',                      hex: '#C40026', cat: 'trans' },
+  { name: 'Trans-Pink',                     hex: '#E485B8', cat: 'trans' },
+  { name: 'Trans-Neon Orange',              hex: '#FF3F00', cat: 'trans' },
+  { name: 'Trans-Purple',                   hex: '#A54BB7', cat: 'trans' },
+  { name: 'Trans-Clear',                    hex: '#EEEEEE', cat: 'trans' },
+  { name: 'Trans-Black (Smoke)',            hex: '#635F61', cat: 'trans' },
+  { name: 'Trans-Dark Pink',                hex: '#DF1E7B', cat: 'trans' },
+  { name: 'Trans-Light Purple (Opal)',      hex: '#E2CCEC', cat: 'trans' },
+  { name: 'Trans-Bright Green',             hex: '#56E200', cat: 'trans' },
+  { name: 'Trans-Yellow',                   hex: '#F5CD00', cat: 'trans' },
+  { name: 'Trans-Medium Blue',              hex: '#68AEF5', cat: 'trans' },
+  { name: 'Trans-Brown (Beer)',             hex: '#845226', cat: 'trans' },
+  { name: 'Trans-Turquoise',                hex: '#00E1D9', cat: 'trans' },
+  { name: 'Trans-Light Bright Green',       hex: '#A2EDB0', cat: 'trans' },
+  { name: 'Trans-Aqua',                     hex: '#D0FAF4', cat: 'trans' },
+  { name: 'Trans-Crimson',                  hex: '#990011', cat: 'trans' }, // 2025
+
+  // ── Pearl / Metallic (22) ──────────────────────────────────────────
+  { name: 'Silver (Cool Silver)',           hex: '#8F9E9D', cat: 'pearl' },
+  { name: 'Pearl Gold',                     hex: '#AA7F2A', cat: 'pearl' },
+  { name: 'Metalized Gold (Warm Gold)',     hex: '#B78E43', cat: 'pearl' },
+  { name: 'Silver (Flat Silver)',           hex: '#899393', cat: 'pearl' },
+  { name: 'Metallic Dark Grey (Titanium)',  hex: '#484E50', cat: 'pearl' },
+  { name: 'Pearl Dark Gray',                hex: '#575857', cat: 'pearl' },
+  { name: 'Pearl Light Gray',               hex: '#9CA3A8', cat: 'pearl' },
+  { name: 'Pearl White',                    hex: '#F2F3ED', cat: 'pearl' },
+  { name: 'Copper',                         hex: '#AE6F4E', cat: 'pearl' },
+  { name: 'Flat Dark Gold',                 hex: '#B48443', cat: 'pearl' },
+  { name: 'Flat Light Gold',                hex: '#D5B97B', cat: 'pearl' },
+  { name: 'Phosphor. Green (夜光绿)',       hex: '#C0D1A9', cat: 'pearl' },
+  { name: 'Pearl Blue',                     hex: '#5D758F', cat: 'pearl' },
+  { name: 'Pearl Medium Blue',              hex: '#6E8CA4', cat: 'pearl' },
+  { name: 'Pearl Green',                    hex: '#548A64', cat: 'pearl' },
+  { name: 'Pearl Light Green',              hex: '#82B28B', cat: 'pearl' },
+  { name: 'Metallic Sand Blue',             hex: '#6B7F96', cat: 'pearl' },
+  { name: 'Metallic Sand Green',            hex: '#758D7C', cat: 'pearl' },
+  { name: 'Pearl Very Light Gray',          hex: '#BBBFB6', cat: 'pearl' },
+  { name: 'Pearl Black',                    hex: '#2C3135', cat: 'pearl' },
+  { name: 'Rose Gold',                      hex: '#CF9E90', cat: 'pearl' },
+  { name: 'Pearl Dark Red',                 hex: '#6E2025', cat: 'pearl' },
+
+  // ── Chrome / Milky / Satin (14) ────────────────────────────────────
+  { name: 'Chrome Gold',                    hex: '#BCA625', cat: 'chrome' },
+  { name: 'Chrome Silver',                  hex: '#E6E6E6', cat: 'chrome' },
+  { name: 'Chrome Antique Brass',           hex: '#645A41', cat: 'chrome' },
+  { name: 'Chrome Black',                   hex: '#1A1A1A', cat: 'chrome' },
+  { name: 'Chrome Blue',                    hex: '#1A5599', cat: 'chrome' },
+  { name: 'Chrome Green',                   hex: '#1A7733', cat: 'chrome' },
+  { name: 'Chrome Pink',                    hex: '#D462A0', cat: 'chrome' },
+  { name: 'Chrome Red',                     hex: '#B81414', cat: 'chrome' },
+  { name: 'Milky White',                    hex: '#EEEEEE', cat: 'chrome' },
+  { name: 'Milky Violet',                   hex: '#C0A0D0', cat: 'chrome' },
+  { name: 'Satin White',                    hex: '#EFF2F3', cat: 'chrome' },
+  { name: 'Satin Trans-Clear',              hex: '#E2E6E7', cat: 'chrome' },
+  { name: 'Satin Trans-Light Blue',         hex: '#9FD6E2', cat: 'chrome' },
+  { name: 'Satin Trans-Dark Pink',          hex: '#D2649B', cat: 'chrome' },
+
+  // ── Speckle / Marbled / Glitter / Glow (14) ────────────────────────
+  { name: 'Speckle Black-Silver',           hex: '#2C3033', cat: 'speckle' },
+  { name: 'Speckle Black-Gold',             hex: '#2B261D', cat: 'speckle' },
+  { name: 'Speckle DB-Gray',                hex: '#5A5A5A', cat: 'speckle' },
+  { name: 'Marbled Black / Silver',         hex: '#404346', cat: 'speckle' },
+  { name: 'Marbled Blue / White',           hex: '#5080C0', cat: 'speckle' },
+  { name: 'Marbled Red / Gold',             hex: '#A03020', cat: 'speckle' },
+  { name: 'Marbled Green / Silver',         hex: '#307050', cat: 'speckle' },
+  { name: 'Glow In Dark White',             hex: '#EBF2D6', cat: 'speckle' },
+  { name: 'Glow In Dark Opaque',            hex: '#D9E8BE', cat: 'speckle' },
+  { name: 'Dark Copper',                    hex: '#7B4832', cat: 'speckle' },
+  { name: 'Glitter Trans-Clear',            hex: '#EEEEEE', cat: 'speckle' },
+  { name: 'Glitter Trans-Purple',           hex: '#A54BB7', cat: 'speckle' },
+  { name: 'Glitter Trans-Light Blue',       hex: '#AEE9EF', cat: 'speckle' },
+  { name: 'Speckle Dark Red-Black',         hex: '#52161E', cat: 'speckle' }, // 2026
 ];
+
+// LEGO_PALETTE is the flat THREE.Color array consumed by snapToLegoColor().
+// Built from active categories via rebuildLegoPalette(); see palette picker
+// UI for the toggle. Default: all categories on (full 130-colour standard).
+let LEGO_PALETTE = [];
+const activeLegoCategories = new Set(['solid', 'trans', 'pearl', 'chrome', 'speckle']);
+
+function rebuildLegoPalette() {
+  LEGO_PALETTE = LEGO_COLOR_DEFS
+    .filter((d) => activeLegoCategories.has(d.cat))
+    .map((d) => new THREE.Color(d.hex));
+  // Safety fallback: empty palette would crash snapToLegoColor's min loop.
+  if (LEGO_PALETTE.length === 0) {
+    LEGO_PALETTE = [new THREE.Color('#FFFFFF'), new THREE.Color('#000000')];
+  }
+}
+rebuildLegoPalette();
 
 function snapToLegoColor(color) {
   let minDistance = Infinity;
@@ -2011,6 +2344,40 @@ function setupUIEventListeners() {
     }, 50);
   });
 
+  // 3D Text — slider value labels + Add/Remove buttons.
+  // Sliders only update the displayed value; the user has to press
+  // "Add / Update Text" to regenerate (TextGeometry is expensive enough
+  // that we don't want to rebuild on every slider tick).
+  if (textSizeEl) {
+    textSizeEl.addEventListener('input', (e) => {
+      valTextSize.textContent = e.target.value;
+    });
+    textDepthEl.addEventListener('input', (e) => {
+      valTextDepth.textContent = e.target.value;
+    });
+    textCurveEl.addEventListener('input', (e) => {
+      valTextCurve.textContent = e.target.value;
+    });
+    textAddBtn.addEventListener('click', () => {
+      buildOrUpdateText().catch((err) => console.error('[text] build failed:', err));
+    });
+    textRemoveBtn.addEventListener('click', removeTextMesh);
+  }
+
+  // Performance Mode — persisted across reloads
+  const savedPerf = localStorage.getItem('everything-lego-perf-mode') === '1';
+  perfMode = savedPerf;
+  if (perfModeEl) {
+    perfModeEl.checked = savedPerf;
+    perfModeEl.addEventListener('change', (e) => {
+      perfMode = e.target.checked;
+      localStorage.setItem('everything-lego-perf-mode', perfMode ? '1' : '0');
+      applyPerfMode();
+    });
+  }
+  // Apply once at startup so the saved state takes effect immediately.
+  applyPerfMode();
+
   // 3. Scene Background Controls
   sceneBgType.addEventListener('change', updateSceneBackground);
   sceneBgColor.addEventListener('input', (e) => {
@@ -2078,13 +2445,41 @@ function setupUIEventListeners() {
     }
   });
 
-  // 7. Preset Selection
-  presetCards.forEach((card) => {
-    card.addEventListener('click', () => {
-      presetCards.forEach((c) => c.classList.remove('active'));
-      card.classList.add('active');
-      applyPreset(card.getAttribute('data-preset'));
-    });
+  // 7. Color Overlay — multiplicative tint + emissive glow.
+  //    Tint sits on top of whatever the active preset already loaded:
+  //      final.color = baseMaterialColor × tintColor
+  //    Emissive is independent of lighting (acts like self-illumination).
+  matTintColor.addEventListener('input', (e) => {
+    const hex = e.target.value;
+    tintColor.set(hex);
+    tintColorHex.textContent = hex.toUpperCase();
+    applyColorOverlay();
+  });
+  matTintReset.addEventListener('click', () => {
+    matTintColor.value = '#ffffff';
+    tintColor.set('#ffffff');
+    tintColorHex.textContent = '#FFFFFF';
+    applyColorOverlay();
+  });
+  matEmissiveColor.addEventListener('input', (e) => {
+    const hex = e.target.value;
+    emissiveColorHex.textContent = hex.toUpperCase();
+    physicalMaterial.emissive.set(hex);
+    physicalMaterial.needsUpdate = true;
+    updateVoxelMaterials();
+  });
+  matEmissiveReset.addEventListener('click', () => {
+    matEmissiveColor.value = '#000000';
+    emissiveColorHex.textContent = '#000000';
+    physicalMaterial.emissive.set('#000000');
+    physicalMaterial.needsUpdate = true;
+    updateVoxelMaterials();
+  });
+  matEmissiveInt.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    valEmissiveInt.textContent = val.toFixed(2);
+    physicalMaterial.emissiveIntensity = val;
+    updateVoxelMaterials();
   });
 
   // 8. Block Effect Listeners
@@ -3418,102 +3813,16 @@ function loadSavedTheme() {
 }
 
 // --- Step 5: Preset Implementation ---
-const presetsMap = {
-  'glass-green': {
-    color: '#77FF00',
-    roughness: 0.49,
-    metalness: 1.00,
-    transmission: 1.00,
-    thickness: 20.0,
-    ior: 2.55,
-  },
-  'liquid-chrome': {
-    color: '#E0E0E0',
-    roughness: 0.10,
-    metalness: 1.00,
-    transmission: 0.00,
-    thickness: 0.0,
-    ior: 1.50,
-  },
-  'ruby-red': {
-    color: '#FF003C',
-    roughness: 0.15,
-    metalness: 0.20,
-    transmission: 1.00,
-    thickness: 15.0,
-    ior: 1.85,
-  },
-  'ceramic-matte': {
-    color: '#F9F6F0',
-    roughness: 0.85,
-    metalness: 0.00,
-    transmission: 0.00,
-    thickness: 0.0,
-    ior: 1.00,
-  },
-  'matte-black': {
-    color: '#111115',
-    roughness: 0.05,
-    metalness: 0.90,
-    transmission: 0.40,
-    thickness: 25.0,
-    ior: 2.40,
-  },
-  'gold-glitch': {
-    color: '#FFE600',
-    roughness: 0.20,
-    metalness: 1.00,
-    transmission: 0.00,
-    thickness: 0.0,
-    ior: 1.50,
+// ── Color Overlay: recompute material.color = baseMaterialColor × tintColor
+// Called by tint picker / reset. baseMaterialColor is refreshed by
+// applyMaterialPreset() so the tint always sits on top of the current preset.
+function applyColorOverlay() {
+  physicalMaterial.color.copy(baseMaterialColor).multiply(tintColor);
+  // Sheen tint follows base × tint for consistency on cloth presets
+  if (physicalMaterial.sheen > 0 && physicalMaterial.sheenColor) {
+    physicalMaterial.sheenColor.copy(physicalMaterial.color);
   }
-};
-
-function applyPreset(presetKey) {
-  const config = presetsMap[presetKey];
-  if (!config) return;
-
-  // 1. Update UI Elements
-  materialPreset.value = 'custom';
-
-  materialRoughness.value = config.roughness;
-  valRoughness.textContent = config.roughness.toFixed(2);
-
-  materialMetalness.value = config.metalness;
-  valMetalness.textContent = config.metalness.toFixed(2);
-
-  materialTransmission.value = config.transmission;
-  valTransmission.textContent = config.transmission.toFixed(2);
-
-  materialThickness.value = config.thickness;
-  valThickness.textContent = config.thickness.toFixed(1);
-
-  materialIor.value = config.ior;
-  valIor.textContent = config.ior.toFixed(2);
-
-  // 2. Apply config directly to physicalMaterial
-  physicalMaterial.color.set(config.color);
-  physicalMaterial.roughness = config.roughness;
-  physicalMaterial.metalness = config.metalness;
-  physicalMaterial.transmission = config.transmission;
-  physicalMaterial.thickness = config.thickness;
-  physicalMaterial.ior = config.ior;
-
-  // Clear any active PBR/wood textures so the preset card's flat-colour
-  // look isn't masked by a leftover albedo / normal map.
-  physicalMaterial.map          = null;
-  physicalMaterial.normalMap    = null;
-  physicalMaterial.metalnessMap = null;
-  physicalMaterial.roughnessMap = null;
-  physicalMaterial.aoMap        = null;
-  physicalMaterial.aoMapIntensity = 0;
-  if (physicalMaterial.normalScale) physicalMaterial.normalScale.set(0, 0);
-
-  // Set transparent state correctly based on transmission
-  physicalMaterial.transparent = config.transmission > 0;
   physicalMaterial.needsUpdate = true;
-
-  // 3. Sync to existing voxels
   updateVoxelMaterials();
 }
 
@@ -3921,6 +4230,15 @@ function onWindowResize() {
 function animate() {
   requestAnimationFrame(animate);
 
+  // Perf-mode frame cap — bail early on excess rAF ticks (144Hz → ~60Hz).
+  // Subtract 1ms tolerance so we don't drop occasional frames to 30Hz on
+  // displays whose refresh interval doesn't divide cleanly into 16.67ms.
+  if (perfMode) {
+    const now = performance.now();
+    if (now - lastFrameTime < PERF_FRAME_MS - 1) return;
+    lastFrameTime = now;
+  }
+
   // ----- 2D filter mode: bypass the entire Three.js pipeline -----
   if (viewMode === '2d') {
     // For video, re-render at ~30fps. Static images draw once on mode/slider
@@ -3988,6 +4306,11 @@ function animate() {
       }
     }
   }
+
+  // Keep the outline selection live — covers cases where a model is
+  // uploaded, text is added, or voxel meshes are rebuilt mid-session.
+  // The work is O(few scene roots) so re-syncing every frame is trivial.
+  if (outlinePass && outlinePass.enabled) refreshOutlineSelection();
 
   // Draw scene — through EffectComposer if post-FX is enabled and any
   // pass is active, otherwise straight to the renderer (cheaper, skips

@@ -65,39 +65,6 @@
         <aside class="sidebar sidebar-left">
           <div class="sidebar-scroll">
             
-            <!-- Section: Preset Pack -->
-            <div class="control-group">
-              <div class="control-group-header">
-                <h3>Presets</h3>
-              </div>
-              <div class="control-group-content presets-grid">
-                <button class="preset-card active" data-preset="glass-green">
-                  <div class="preset-preview" style="background: linear-gradient(135deg, #77ff00, #338800);"></div>
-                  <span>Glass Green</span>
-                </button>
-                <button class="preset-card" data-preset="liquid-chrome">
-                  <div class="preset-preview" style="background: linear-gradient(135deg, #e0e0e0, #888888);"></div>
-                  <span>Chrome</span>
-                </button>
-                <button class="preset-card" data-preset="ruby-red">
-                  <div class="preset-preview" style="background: linear-gradient(135deg, #ff0055, #880022);"></div>
-                  <span>Ruby Glass</span>
-                </button>
-                <button class="preset-card" data-preset="ceramic-matte">
-                  <div class="preset-preview" style="background: #ffffff; border: 1px solid #444;"></div>
-                  <span>Clay</span>
-                </button>
-                <button class="preset-card" data-preset="matte-black">
-                  <div class="preset-preview" style="background: #111;"></div>
-                  <span>Obsidian</span>
-                </button>
-                <button class="preset-card" data-preset="gold-glitch">
-                  <div class="preset-preview" style="background: linear-gradient(135deg, #ffe600, #b8860b);"></div>
-                  <span>Gold</span>
-                </button>
-              </div>
-            </div>
-
             <!-- Section: Model Material -->
             <div class="control-group expanded">
               <div class="control-group-header">
@@ -269,6 +236,36 @@
                     <span id="val-iridescence">0.00</span>
                   </div>
                   <input type="range" id="material-iridescence" min="0" max="1" step="0.01" value="0" />
+                </div>
+
+                <!-- Color Overlay — multiplicative tint + emissive glow ─────── -->
+                <div class="control-divider">Color Overlay</div>
+
+                <!-- Tint multiplies the base (texture × color). White = no tint. -->
+                <div class="control-row">
+                  <label for="material-tint-color">Tint (multiply)</label>
+                  <div class="color-picker-wrapper">
+                    <input type="color" id="material-tint-color" value="#ffffff" />
+                    <span id="tint-color-hex" class="hex-label">#FFFFFF</span>
+                    <button id="material-tint-reset" class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.66rem;" title="Reset tint to white (no tint)">Clear</button>
+                  </div>
+                </div>
+
+                <!-- Emissive glow — independent of lighting. Black = off. -->
+                <div class="control-row">
+                  <label for="material-emissive-color">Emissive Glow</label>
+                  <div class="color-picker-wrapper">
+                    <input type="color" id="material-emissive-color" value="#000000" />
+                    <span id="emissive-color-hex" class="hex-label">#000000</span>
+                    <button id="material-emissive-reset" class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.66rem;" title="Turn emissive off">Off</button>
+                  </div>
+                </div>
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="material-emissive-intensity">Glow Intensity</label>
+                    <span id="val-emissive-intensity">1.00</span>
+                  </div>
+                  <input type="range" id="material-emissive-intensity" min="0" max="5" step="0.05" value="1.0" />
                 </div>
 
                 <!-- Scale Slider -->
@@ -598,6 +595,20 @@
                   (Bloom / Outline / GTAO) are disabled because EffectComposer is WebGL-only.
                   Stick with WebGL unless you're benchmarking.
                 </div>
+
+                <!-- Performance Mode — one-click GPU savings bundle ───────── -->
+                <div class="control-divider">Performance</div>
+                <div class="control-row checkbox-row">
+                  <label for="perf-mode">Performance Mode</label>
+                  <input type="checkbox" id="perf-mode" />
+                </div>
+                <div class="shortcut-tip" style="font-size: 0.66rem; margin-top: 6px;">
+                  Bundles four GPU savings:<br>
+                  &nbsp;• Frame rate cap @ <b>60 FPS</b> (saves ~58 % on 144 Hz)<br>
+                  &nbsp;• Pixel ratio cap × <b>0.75</b> (cuts ~44 % shaded pixels)<br>
+                  &nbsp;• Transmission pass @ <b>½ resolution</b> (glass ~4× cheaper)<br>
+                  &nbsp;• Auto-pause video + render when tab hidden
+                </div>
               </div>
             </div>
 
@@ -651,6 +662,77 @@
                   <div class="upload-text">Upload 3D Model</div>
                   <span class="upload-hint">FBX · GLB · GLTF · OBJ · STL · 3MF</span>
                   <input type="file" id="model-upload" accept=".fbx,.glb,.gltf,.obj,.stl,.3mf" style="display: none;" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Section: 3D Text — TextGeometry addon, loaded as a model -->
+            <div class="control-group">
+              <div class="control-group-header">
+                <h3>3D Text</h3>
+              </div>
+              <div class="control-group-content">
+                <!-- Text content -->
+                <div class="control-row">
+                  <label for="text-content">Text</label>
+                  <input type="text" id="text-content" class="form-input" value="STUD" maxlength="32" placeholder="STUD" />
+                </div>
+
+                <!-- Font face -->
+                <div class="control-row">
+                  <label for="text-font">Font</label>
+                  <select id="text-font" class="form-select">
+                    <option value="helvetiker_bold" selected>Helvetiker Bold</option>
+                    <option value="helvetiker_regular">Helvetiker Regular</option>
+                    <option value="optimer_bold">Optimer Bold</option>
+                    <option value="optimer_regular">Optimer Regular</option>
+                    <option value="gentilis_bold">Gentilis Bold</option>
+                    <option value="gentilis_regular">Gentilis Regular</option>
+                  </select>
+                </div>
+
+                <!-- Size (em-height in world units) -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="text-size">Size</label>
+                    <span id="val-text-size">12</span>
+                  </div>
+                  <input type="range" id="text-size" min="2" max="60" step="1" value="12" />
+                </div>
+
+                <!-- Depth (extrusion / 3D thickness) -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="text-depth">Depth</label>
+                    <span id="val-text-depth">3</span>
+                  </div>
+                  <input type="range" id="text-depth" min="0" max="20" step="0.5" value="3" />
+                </div>
+
+                <!-- Curve segments — smoothness of bezier characters -->
+                <div class="control-row">
+                  <div class="label-with-val">
+                    <label for="text-curve">Smoothness</label>
+                    <span id="val-text-curve">6</span>
+                  </div>
+                  <input type="range" id="text-curve" min="2" max="20" step="1" value="6" />
+                </div>
+
+                <!-- Bevel for that classic chunky Lego stud look -->
+                <div class="control-row checkbox-row">
+                  <label for="text-bevel">Bevel Edges</label>
+                  <input type="checkbox" id="text-bevel" checked />
+                </div>
+
+                <!-- Action buttons — Add / Update replaces the current model
+                     with the generated text; Remove clears it from the scene -->
+                <div class="tf-action-row">
+                  <button id="text-add"    class="btn btn-primary   btn-full" style="padding: 6px;">Add / Update Text</button>
+                  <button id="text-remove" class="btn btn-secondary btn-full" style="padding: 6px;">Remove Text</button>
+                </div>
+                <div class="shortcut-tip" style="font-size: 0.66rem; margin-top: 6px;">
+                  Treated as a 3D model — replaces any current model
+                  and clears voxel samples. Use Block Effect to voxelize.
                 </div>
               </div>
             </div>

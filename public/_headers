@@ -1,0 +1,25 @@
+# Cloudflare Pages cache headers
+# Docs: https://developers.cloudflare.com/pages/configuration/headers/
+
+# Hashed Vite assets — content-addressed, safe to cache for a year.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Static PBR / wood textures (118 MB total) — versioned by replacement, so
+# treat as long-cache. Bumping cache requires renaming the files.
+/textures/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Custom fonts and the default sample video — heavy, rarely change.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+/default-sample.mp4
+  Cache-Control: public, max-age=2592000
+
+# Never cache the entry HTML — it pins the hashed asset filenames.
+# Without this, users can get a stale index.html that references old chunks
+# that were purged from the CDN, producing white screens.
+/index.html
+  Cache-Control: no-cache, must-revalidate
+/
+  Cache-Control: no-cache, must-revalidate
