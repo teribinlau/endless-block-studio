@@ -2669,11 +2669,8 @@ function setupUIEventListeners() {
     debouncedTriggerBlockUpdate();
   });
 
-  blockGap.addEventListener('input', (e) => {
-    const val = parseInt(e.target.value);
-    valBlockGap.textContent = `${val}%`;
-    debouncedTriggerBlockUpdate();
-  });
+  // (Block Outlines slider removed — hard-coded to 1% via the hidden
+  // #block-gap input. Re-add a slider here if user customisation returns.)
 
   // Shadow Spread — 2D only. Drives outerR multiplier in getShadowMask().
   shadowSpread.addEventListener('input', (e) => {

@@ -363,14 +363,13 @@
                   <input type="range" id="block-resolution" min="10" max="120" step="1" value="30" />
                 </div>
 
-                <!-- Block Gap / Outlines -->
-                <div class="control-row">
-                  <div class="label-with-val">
-                    <label for="block-gap">Block Outlines</label>
-                    <span id="val-block-gap">5%</span>
-                  </div>
-                  <input type="range" id="block-gap" min="0" max="25" step="1" value="5" />
-                </div>
+                <!-- Block gap / outline is now a fixed 1% — the slider was
+                     removed because most users never touched it. The hidden
+                     input keeps blockGap.value reads working without forcing
+                     a refactor of updateBlockEffect / updateBlockHeightmap.
+                     val-block-gap kept as a hidden span for symmetry. -->
+                <input type="hidden" id="block-gap" value="1" />
+                <span id="val-block-gap" style="display: none;">1%</span>
 
                 <!-- Shadow Spread (2D mode only — controls radial gradient outerR) -->
                 <div class="control-row">
