@@ -1,0 +1,22 @@
+/**
+ * Cloudflare Workers Static Assets config.
+ *
+ * The Cloudflare "Connect to Git" flow now defaults to a Workers project
+ * that runs `npx wrangler deploy` after the build. That command needs to
+ * know which folder to upload — this file points it at the Vite build
+ * output. No Worker script is needed: Workers Static Assets serves the
+ * /dist tree directly via the global CDN, same as Pages did.
+ *
+ * Docs: https://developers.cloudflare.com/workers/static-assets/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "endless-block-studio",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./dist",
+    // SPA-style fallback — every unmatched route returns index.html.
+    // Harmless for this app (no client routing), but future-proofs it.
+    "not_found_handling": "single-page-application"
+  }
+}
