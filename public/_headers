@@ -1,6 +1,18 @@
-# Cloudflare Pages cache headers
+# Cloudflare Pages / Workers Static Assets configuration.
 # Docs: https://developers.cloudflare.com/pages/configuration/headers/
 
+# ─── Security headers — apply to every response ────────────────────────
+/*
+  # Sniffing-prevention: tells the browser to trust the declared MIME type.
+  X-Content-Type-Options: nosniff
+  # Don't leak full URL in Referer header to third parties.
+  Referrer-Policy: strict-origin-when-cross-origin
+  # Disable browser APIs we never use — reduces fingerprint + attack surface.
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  # Allow embedding only from our own domain (Framer subdomain on ilililab.de).
+  X-Frame-Options: SAMEORIGIN
+
+# ─── Cache headers ─────────────────────────────────────────────────────
 # Hashed Vite assets — content-addressed, safe to cache for a year.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

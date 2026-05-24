@@ -2,36 +2,53 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
-import { ThreeMFLoader } from 'three/examples/jsm/loaders/3MFLoader.js';
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass }     from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { OutputPass }     from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutlinePass }     from 'three/examples/jsm/postprocessing/OutlinePass.js';
-import { GTAOPass }        from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+// ─── Lazy-loaded modules ────────────────────────────────────────────────
+// File loaders are only needed when the user uploads a matching format,
+// HDR upload, or hits Export. Post-FX classes are only needed when the
+// user enables Bloom / Outline / GTAO. Dynamic import() makes Vite split
+// each one into its own chunk → not shipped in the initial bundle.
+const lazy = {
+  fbx:    () => import('three/examples/jsm/loaders/FBXLoader.js').then((m) => m.FBXLoader),
+  gltf:   () => import('three/examples/jsm/loaders/GLTFLoader.js').then((m) => m.GLTFLoader),
+  obj:    () => import('three/examples/jsm/loaders/OBJLoader.js').then((m) => m.OBJLoader),
+  stl:    () => import('three/examples/jsm/loaders/STLLoader.js').then((m) => m.STLLoader),
+  threemf:() => import('three/examples/jsm/loaders/3MFLoader.js').then((m) => m.ThreeMFLoader),
+  rgbe:   () => import('three/examples/jsm/loaders/RGBELoader.js').then((m) => m.RGBELoader),
+  gltfExporter: () => import('three/examples/jsm/exporters/GLTFExporter.js').then((m) => m.GLTFExporter),
+  // Post-FX bundle — fetched together since toggling any one likely
+  // means the user is about to play with all of them.
+  postfx: () => Promise.all([
+    import('three/examples/jsm/postprocessing/EffectComposer.js'),
+    import('three/examples/jsm/postprocessing/RenderPass.js'),
+    import('three/examples/jsm/postprocessing/OutputPass.js'),
+    import('three/examples/jsm/postprocessing/UnrealBloomPass.js'),
+    import('three/examples/jsm/postprocessing/OutlinePass.js'),
+    import('three/examples/jsm/postprocessing/GTAOPass.js'),
+  ]).then(([ec, rp, op, bp, olp, gp]) => ({
+    EffectComposer: ec.EffectComposer,
+    RenderPass:     rp.RenderPass,
+    OutputPass:     op.OutputPass,
+    UnrealBloomPass:bp.UnrealBloomPass,
+    OutlinePass:    olp.OutlinePass,
+    GTAOPass:       gp.GTAOPass,
+  })),
+};
 import { TextGeometry }       from 'three/examples/jsm/geometries/TextGeometry.js';
 import { FontLoader }         from 'three/examples/jsm/loaders/FontLoader.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-// Typeface.json fonts bundled with the three npm package. We import as
-// modules so they're code-split into their own chunks (~70 KB each gzipped,
-// only fetched on first text generation).
+// Typeface.json fonts bundled with the three npm package. Each is its
+// own code-split chunk — only the picked face is fetched. Gentilis was
+// dropped because its CJK glyph coverage inflates it to ~200 KB gzipped
+// (vs ~22 KB for Helvetiker), wildly disproportionate for Latin text.
 const FONT_URLS = {
   helvetiker_bold:    () => import('three/examples/fonts/helvetiker_bold.typeface.json'),
   helvetiker_regular: () => import('three/examples/fonts/helvetiker_regular.typeface.json'),
   optimer_bold:       () => import('three/examples/fonts/optimer_bold.typeface.json'),
   optimer_regular:    () => import('three/examples/fonts/optimer_regular.typeface.json'),
-  gentilis_bold:      () => import('three/examples/fonts/gentilis_bold.typeface.json'),
-  gentilis_regular:   () => import('three/examples/fonts/gentilis_regular.typeface.json'),
 };
 
 // --- State Variables ---
@@ -958,13 +975,16 @@ async function init() {
   }
   generateProceduralEnvironment();
 
-  // 6b. Post-processing pipeline (EffectComposer).
-  // Default: pass-through (RenderPass + OutputPass). Bloom / Outline /
-  // GTAO passes exist but start disabled; UI toggles flip their `enabled`.
-  setupPostFx();
+  // 6b. Post-processing pipeline is now lazy-built on first toggle of
+  //     a Bloom / Outline / GTAO checkbox. See ensurePostFx().
 
-  // 7. Load Default Model
-  loadDefaultModel();
+  // 7. Load Default Sample directly.
+  //    Historically we used to loadDefaultModel() (a 1.6 MB FBX), then
+  //    loadDefaultSample() which set mediaMapping='heightmap', which
+  //    immediately hid the FBX. The FBX was downloaded + parsed for
+  //    nothing visible. Skipping it saves ~1.6 MB on every page load.
+  //    The user can still upload any model via the right-side panel.
+  loadDefaultSample();
 
   // 8. Event Listeners
   window.addEventListener('resize', onWindowResize);
@@ -1021,48 +1041,57 @@ function showWebGPUWarningBanner() {
   });
 }
 
-function setupPostFx() {
-  // EffectComposer (from three/examples/jsm) is built on the WebGLRenderer
-  // pipeline. Skip silently when running the WebGPU backend.
-  if (useWebGPU) return;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+// Lazy-init Post-FX. Composer + 4 passes are only built on first use,
+// after the lazy.postfx() chunk arrives. Returns a promise that resolves
+// once the pipeline is ready. Safe to call repeatedly — only inits once.
+let postFxInitPromise = null;
+async function ensurePostFx() {
+  // EffectComposer is WebGLRenderer-only — skip on the WebGPU backend.
+  if (useWebGPU) return null;
+  if (composer) return composer;
+  if (postFxInitPromise) return postFxInitPromise;
 
-  composer = new EffectComposer(renderer);
-  composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  composer.setSize(w, h);
-  // Apply perf-mode pixel ratio override now that composer exists.
-  applyPerfMode();
+  postFxInitPromise = (async () => {
+    const fx = await lazy.postfx();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
 
-  // 1. Base scene render
-  composer.addPass(new RenderPass(scene, camera));
+    composer = new fx.EffectComposer(renderer);
+    composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    composer.setSize(w, h);
+    applyPerfMode(); // applies perf-mode DPR override now that composer exists
 
-  // 2. GTAO — much higher quality than legacy SSAOPass; subtle crevice
-  // shadows make the bricks read as a real assembled pile of pieces.
-  gtaoPass = new GTAOPass(scene, camera, w, h);
-  gtaoPass.output = GTAOPass.OUTPUT.Default;
-  gtaoPass.enabled = false;
-  composer.addPass(gtaoPass);
+    // 1. Base scene render
+    composer.addPass(new fx.RenderPass(scene, camera));
 
-  // 3. Outline — Lego illustration / cel-shaded mode. We outline all
-  // currently-active voxel meshes; refreshed whenever they're rebuilt.
-  outlinePass = new OutlinePass(new THREE.Vector2(w, h), scene, camera);
-  outlinePass.edgeStrength    = 3.0;
-  outlinePass.edgeGlow        = 0.0;
-  outlinePass.edgeThickness   = 1.0;
-  outlinePass.pulsePeriod     = 0;
-  outlinePass.visibleEdgeColor.set('#000000');
-  outlinePass.hiddenEdgeColor.set('#000000');
-  outlinePass.enabled = false;
-  composer.addPass(outlinePass);
+    // 2. GTAO — crevice shadows so bricks read as real piled-up pieces.
+    gtaoPass = new fx.GTAOPass(scene, camera, w, h);
+    gtaoPass.output = fx.GTAOPass.OUTPUT.Default;
+    gtaoPass.enabled = false;
+    composer.addPass(gtaoPass);
 
-  // 4. Bloom — gives metals + lights that "render" punch.
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.6, 0.4, 0.85);
-  bloomPass.enabled = false;
-  composer.addPass(bloomPass);
+    // 3. Outline — cel-shaded / Lego-illustration look.
+    outlinePass = new fx.OutlinePass(new THREE.Vector2(w, h), scene, camera);
+    outlinePass.edgeStrength  = 3.0;
+    outlinePass.edgeGlow      = 0.0;
+    outlinePass.edgeThickness = 1.0;
+    outlinePass.pulsePeriod   = 0;
+    outlinePass.visibleEdgeColor.set('#000000');
+    outlinePass.hiddenEdgeColor.set('#000000');
+    outlinePass.enabled = false;
+    composer.addPass(outlinePass);
 
-  // 5. Final tone-map + colour-space pass.
-  composer.addPass(new OutputPass());
+    // 4. Bloom — punch on metals + lights.
+    bloomPass = new fx.UnrealBloomPass(new THREE.Vector2(w, h), 0.6, 0.4, 0.85);
+    bloomPass.enabled = false;
+    composer.addPass(bloomPass);
+
+    // 5. Final tone-map + colour-space pass.
+    composer.addPass(new fx.OutputPass());
+
+    return composer;
+  })();
+  return postFxInitPromise;
 }
 
 /* Sync outline pass's selectedObjects to everything currently in the scene
@@ -1245,7 +1274,10 @@ function handleEnvUpload(file) {
   };
 
   if (ext === 'hdr') {
-    new RGBELoader().load(url, onLoaded, undefined, onErr);
+    // Lazy-load RGBELoader on demand — only HDR uploads need it.
+    lazy.rgbe().then((RGBELoader) => {
+      new RGBELoader().load(url, onLoaded, undefined, onErr);
+    });
   } else {
     // jpg / png / webp equirectangular
     new THREE.TextureLoader().load(
@@ -1257,45 +1289,6 @@ function handleEnvUpload(file) {
   }
 }
 
-// --- Step 3: Load Default Model ---
-function loadDefaultModel() {
-  showLoader(true);
-  const loader = new FBXLoader();
-  
-  loader.load(
-    '/models/model.fbx',
-    (fbx) => {
-      // Setup current model object
-      setupModelInScene(fbx);
-      
-      // Configure target rotation from metadata:
-      // x: -1.63367528844671, y: -1.132304520315852, z: -1.3343262743635598
-      currentModel.rotation.set(-1.6337, -1.1323, -1.3343);
-      
-      // Apply initial custom scaling (metadata scale factor is 0.069357, let's auto-scale appropriately)
-      const targetScale = 0.069357 * parseFloat(modelScale.value);
-      currentModel.scale.set(targetScale, targetScale, targetScale);
-
-      // Load default sample video as initial startup view
-      loadDefaultSample();
-    },
-    (xhr) => {
-      if (xhr.total > 0) {
-        const percent = Math.round((xhr.loaded / xhr.total) * 100);
-        loaderProgress.textContent = `${percent}%`;
-      } else {
-        loaderProgress.textContent = 'Streaming...';
-      }
-    },
-    (error) => {
-      console.error('Error loading default FBX model:', error);
-      loaderProgress.textContent = 'Loading failed. Use custom upload!';
-      // Show default placeholder shape (TorusKnot) if the fbx failed to load
-      createPlaceholderShape();
-      loadDefaultSample();
-    }
-  );
-}
 
 // Swap the currentModel's meshes between their file-provided materials
 // and the global physicalMaterial, based on the "Use file's own materials"
@@ -1321,10 +1314,40 @@ function applyModelMaterials() {
   });
 }
 
+// Recursively dispose of an Object3D's GPU resources (geometries +
+// materials + textures). Called before swapping out currentModel so
+// uploading 10 models doesn't leak 10 models worth of VRAM.
+//
+// Three.js does NOT auto-free GPU buffers when you scene.remove() —
+// you have to explicitly call .dispose() on every BufferGeometry /
+// Material / Texture. This walks the subtree and does that.
+function disposeObject3D(root) {
+  if (!root) return;
+  root.traverse((obj) => {
+    if (!obj.isMesh && !obj.isInstancedMesh) return;
+    if (obj.geometry) obj.geometry.dispose();
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    mats.forEach((m) => {
+      if (!m) return;
+      // Free attached textures — map / normalMap / roughnessMap / etc.
+      // Skip the global physicalMaterial's textures, which are shared
+      // across the whole app (wood / mat-works PBR sets are reused).
+      if (m !== physicalMaterial) {
+        for (const key in m) {
+          const val = m[key];
+          if (val && val.isTexture) val.dispose();
+        }
+        m.dispose();
+      }
+    });
+  });
+}
+
 // Setup a 3D model in scene
 function setupModelInScene(object) {
   if (currentModel) {
     scene.remove(currentModel);
+    disposeObject3D(currentModel);
   }
 
   currentModel = object;
@@ -1528,15 +1551,6 @@ function resetModelTransform() {
 }
 
 // Fallback placeholder shape
-function createPlaceholderShape() {
-  const geom = new THREE.TorusKnotGeometry(2, 0.6, 120, 16);
-  const mesh = new THREE.Mesh(geom, physicalMaterial);
-  const pivot = new THREE.Group();
-  pivot.add(mesh);
-  setupModelInScene(pivot);
-  displayProjectName.textContent = 'Project / Torus Knot Fallback';
-}
-
 // Helper to format stats numbers
 function formatNumber(num) {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -2438,8 +2452,11 @@ function setupUIEventListeners() {
     }
   });
 
-  // Post FX — Bloom
-  fxBloom.addEventListener('change', (e) => {
+  // Post FX — Bloom / Outline / GTAO. Each toggle awaits ensurePostFx()
+  // on first activation, which lazy-fetches the postprocessing chunk
+  // (~150 KB gzip) and builds the EffectComposer pipeline.
+  fxBloom.addEventListener('change', async (e) => {
+    await ensurePostFx();
     if (bloomPass) bloomPass.enabled = e.target.checked;
   });
   fxBloomStrength.addEventListener('input', (e) => {
@@ -2452,8 +2469,8 @@ function setupUIEventListeners() {
     valFxBloomThreshold.textContent = v.toFixed(2);
     if (bloomPass) bloomPass.threshold = v;
   });
-  // Post FX — Outline
-  fxOutline.addEventListener('change', (e) => {
+  fxOutline.addEventListener('change', async (e) => {
+    await ensurePostFx();
     if (outlinePass) {
       outlinePass.enabled = e.target.checked;
       if (e.target.checked) refreshOutlineSelection();
@@ -2464,8 +2481,8 @@ function setupUIEventListeners() {
     valFxOutlineStrength.textContent = v.toFixed(1);
     if (outlinePass) outlinePass.edgeStrength = v;
   });
-  // Post FX — GTAO
-  fxGtao.addEventListener('change', (e) => {
+  fxGtao.addEventListener('change', async (e) => {
+    await ensurePostFx();
     if (gtaoPass) gtaoPass.enabled = e.target.checked;
   });
 
@@ -4028,20 +4045,27 @@ function handleCustomFile(file) {
     setTimeout(() => showLoader(false), 2000);
   };
 
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     const contents = e.target.result;
     try {
+      // Each loader is fetched on demand so the initial bundle stays slim.
+      // Real-world: a user only ever picks one or two formats per session.
       if (extension === 'fbx') {
+        const FBXLoader = await lazy.fbx();
         finish(new FBXLoader().parse(contents, ''));
       } else if (extension === 'glb' || extension === 'gltf') {
+        const GLTFLoader = await lazy.gltf();
         new GLTFLoader().parse(contents, '', (gltf) => finish(gltf.scene), (err) => fail(err, 'GLTF'));
       } else if (extension === 'obj') {
+        const OBJLoader = await lazy.obj();
         // OBJLoader.parse(text) → Group
         finish(new OBJLoader().parse(contents));
       } else if (extension === 'stl') {
+        const STLLoader = await lazy.stl();
         // STLLoader.parse(buffer) → BufferGeometry (handles ASCII + binary)
         finish(new STLLoader().parse(contents));
       } else if (extension === '3mf') {
+        const ThreeMFLoader = await lazy.threemf();
         // 3MF is a ZIP; ThreeMFLoader.parse(buffer) → Group
         finish(new ThreeMFLoader().parse(contents));
       } else {
@@ -4173,7 +4197,7 @@ function convertInstancedMeshToMesh(instancedMesh, baseName = 'voxel') {
 }
 
 // Export Scene to GLB File format
-function exportToGLB() {
+async function exportToGLB() {
   const isHeightmapMode = (isMediaLoaded && mediaMapping.value === 'heightmap');
   if (!currentModel && !isHeightmapMode) return;
 
@@ -4272,6 +4296,9 @@ function exportToGLB() {
     return;
   }
 
+  // GLTFExporter lives in its own lazy chunk — only fetched when the user
+  // actually presses the Export GLB button.
+  const GLTFExporter = await lazy.gltfExporter();
   const exporter = new GLTFExporter();
   exporter.parse(
     exportGroup,

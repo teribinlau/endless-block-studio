@@ -841,59 +841,6 @@ input[type="checkbox"]:checked::after {
   transform: rotate(45deg);
 }
 
-/* Preset Grid */
-.presets-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.preset-card {
-  background: var(--card-bg);
-  border: 1px solid var(--sidebar-border);
-  border-radius: var(--border-radius-md);
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  transition: all var(--transition-speed);
-}
-
-.preset-card:hover {
-  background: var(--card-hover);
-  border-color: var(--sidebar-border);
-}
-
-.preset-card.active {
-  border-color: var(--accent-color);
-  background: rgba(119, 255, 0, 0.05);
-}
-
-.preset-preview {
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}
-
-.preset-card span {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
-}
-
-.preset-card.active span {
-  color: var(--text-main);
-  font-weight: 600;
-}
-
 /* Upload zone */
 .upload-zone {
   border: 1.5px dashed var(--sidebar-border);
@@ -1227,7 +1174,6 @@ label, span, p, div, a {
 .header, .footer, .sidebar,
 .control-group, .control-group-content,
 .canvas-2d, .canvas-2d-empty,
-.preset-card, .preset-preview,
 .upload-zone, .media-info-wrapper,
 .info-panel, .loader-content,
 .modal, .badge,
@@ -1277,7 +1223,7 @@ body {
 }
 .btn, .form-select, select,
 input[type="text"], input[type="number"], input[type="color"],
-.preset-card, .badge,
+.badge,
 .canvas-2d, .control-divider,
 .video-export-bar, .video-export-bar-fill {
   border-radius: 4px !important;
@@ -1382,20 +1328,6 @@ input[type="text"], input[type="number"], input[type="color"],
 /* Dark mode swap is automatic via currentColor — --text-main flips, so
    the logo flips with it. No explicit dark-mode block needed. */
 
-/* 8. Preset cards — flat hairline tiles */
-.preset-card {
-  background: transparent !important;
-  border: 1px solid var(--sidebar-border) !important;
-  color: var(--text-main) !important;
-}
-.preset-card:hover {
-  background: var(--card-hover) !important;
-}
-.preset-card.active {
-  background: var(--accent-color) !important;
-  border-color: var(--accent-color) !important;
-  color: var(--bg-color) !important;
-}
 
 /* 9. Form controls — flat, hairline */
 .form-select, select,
