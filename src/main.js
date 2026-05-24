@@ -898,8 +898,11 @@ async function init() {
       // Re-aim OrbitControls at the new model centre so subsequent orbit
       // rotates around the model, not around the original world origin.
       focusOrbitTarget();
-      // Re-voxelise if Block Mode is on so the brick grid matches new pose.
-      if (blockMode.checked) updateBlockEffect();
+      // NOTE: do NOT re-voxelise here. The voxel InstancedMeshes are
+      // children of currentModel, so they translate/rotate/scale along
+      // with it for free. Calling updateBlockEffect() would clear and
+      // rebuild every brick on every drop, which looks like a "full
+      // scene refresh" and stalls for big models.
     }
   });
   // r170+: the gizmo geometry lives in a separate helper object; we must
@@ -1479,7 +1482,8 @@ function setModelBottomAxis(axis) {
     case '-z': currentModel.rotation.set(-Math.PI / 2, 0, 0); break;
   }
   snapModelToFloor();
-  if (blockMode.checked) updateBlockEffect();
+  // Voxels are children of currentModel — they rotate with it for free.
+  // No updateBlockEffect() needed; the brick grid is built in local space.
 }
 
 /* Translate currentModel so its lowest point sits at y = 0. Preserves
@@ -1547,7 +1551,7 @@ function resetModelTransform() {
   box.getCenter(center);
   currentModel.position.sub(center);
   focusOrbitTarget();
-  if (blockMode.checked) updateBlockEffect();
+  // Voxels are children of currentModel — re-centering moves them with it.
 }
 
 // Fallback placeholder shape
@@ -2220,7 +2224,7 @@ function setupUIEventListeners() {
   const btnResetXf   = document.getElementById('tf-reset');
   if (btnSnapFloor) btnSnapFloor.addEventListener('click', () => {
     snapModelToFloor();
-    if (blockMode.checked) updateBlockEffect();
+    // Voxels are children of currentModel — translate moves them with it.
   });
   if (btnResetXf)   btnResetXf.addEventListener('click',   resetModelTransform);
   const btnFocusModel = document.getElementById('tf-focus');
