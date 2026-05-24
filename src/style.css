@@ -1367,23 +1367,15 @@ input[type="text"], input[type="number"], input[type="color"],
   vertical-align: middle;
   flex-shrink: 0;
 }
-/* Slot 1: where the old logo dot lived — small wordmark next to title.
-   Height tuned to roughly match the heading cap-height. */
+/* Wordmark next to the title — sized so the ilili glyphs visually match
+   the heading's full character height. Heading is 1.1rem (~17.6px) bold
+   monospace, so logo height ≈ heading line-height keeps the optical
+   weight balanced. SVG viewBox aspect 559:191 ≈ 2.93. */
 .logo-mark {
-  height: 18px;
-  width: 53px;  /* 18 × 2.93 */
+  height: 22px;
+  width: 65px;  /* 22 × 2.93 — rounded */
   color: var(--text-main);
   /* Cancel the OpenCode override that gave .logo-dot a square fill */
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-/* Slot 2: where the PRO pill lived — a touch smaller, sits to the right
-   of the heading. */
-.logo-badge {
-  height: 14px;
-  width: 41px;  /* 14 × 2.93 */
-  color: var(--text-main);
-  opacity: 0.85;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
