@@ -216,6 +216,10 @@ const videoExportProgressText = document.getElementById('video-export-progress-t
 let isExportingVideo = false;
 const modelUpload = document.getElementById('model-upload');
 const uploadZone = document.getElementById('upload-zone');
+// "Use file's own materials" — on by default. Keeps the loader's
+// MeshStandardMaterial / MeshPhongMaterial / textures intact instead of
+// stomping them with the global physicalMaterial.
+const modelKeepMaterials = document.getElementById('model-keep-materials');
 
 // ─── Color Overlay refs (multiplicative tint + emissive glow) ───────────
 const matTintColor       = document.getElementById('material-tint-color');
@@ -1282,6 +1286,30 @@ function loadDefaultModel() {
   );
 }
 
+// Swap the currentModel's meshes between their file-provided materials
+// and the global physicalMaterial, based on the "Use file's own materials"
+// checkbox. Called both right after load (via setupModelInScene) and on
+// every toggle of the checkbox so the swap is reversible.
+//
+// Edge cases:
+//   • STL files arrive with no material at all — the stash holds `null`,
+//     so we fall through to physicalMaterial regardless of the toggle.
+//   • __textRoot meshes were built with physicalMaterial as their original,
+//     so toggling is a no-op for them (correct behaviour).
+function applyModelMaterials() {
+  if (!currentModel) return;
+  const useOriginal = modelKeepMaterials ? modelKeepMaterials.checked : true;
+  currentModel.traverse((child) => {
+    if (!child.isMesh) return;
+    const orig = child.userData.__originalMaterial;
+    if (useOriginal && orig) {
+      child.material = orig;
+    } else {
+      child.material = physicalMaterial;
+    }
+  });
+}
+
 // Setup a 3D model in scene
 function setupModelInScene(object) {
   if (currentModel) {
@@ -1305,13 +1333,21 @@ function setupModelInScene(object) {
   // Initialize stats
   modelStats = { meshes: 0, vertices: 0, triangles: 0 };
 
-  // Apply materials and count meshes/vertices
+  // First pass — count stats AND stash the loader-provided material so the
+  // "Use file's own materials" toggle can swap back to it later. Without
+  // this stash, the first call to applyModelMaterials() would lose the
+  // original because we'd already overwritten it.
   currentModel.traverse((child) => {
     if (child.isMesh) {
-      child.material = physicalMaterial;
       child.castShadow = true;
       child.receiveShadow = true;
-      
+      // Preserve whatever the loader produced (GLTFLoader → MeshStandard,
+      // FBXLoader → MeshPhong with textures, 3MFLoader → vertex-coloured
+      // MeshStandard, STLLoader → no material → null).
+      if (!child.userData.__originalMaterial) {
+        child.userData.__originalMaterial = child.material || null;
+      }
+
       modelStats.meshes++;
       if (child.geometry) {
         const geom = child.geometry;
@@ -1327,6 +1363,8 @@ function setupModelInScene(object) {
       }
     }
   });
+  // Second pass — apply materials per current toggle state.
+  applyModelMaterials();
 
   // Center model bounding box
   const box = new THREE.Box3().setFromObject(currentModel);
@@ -2444,6 +2482,14 @@ function setupUIEventListeners() {
       handleCustomFile(e.target.files[0]);
     }
   });
+
+  // "Use file's own materials" — live toggle. Stashed originals from the
+  // load-time pass are restored or replaced by physicalMaterial as needed.
+  if (modelKeepMaterials) {
+    modelKeepMaterials.addEventListener('change', () => {
+      applyModelMaterials();
+    });
+  }
 
   // 7. Color Overlay — multiplicative tint + emissive glow.
   //    Tint sits on top of whatever the active preset already loaded:
