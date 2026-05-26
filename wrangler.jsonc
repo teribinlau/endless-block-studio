@@ -11,7 +11,7 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "endless-block-studio",
+  "name": "everthing-lego",
   "compatibility_date": "2025-01-01",
   "assets": {
     "directory": "./dist",
