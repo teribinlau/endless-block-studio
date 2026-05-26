@@ -795,12 +795,36 @@ let perfMode = false;
 const PERF_FRAME_MS = 1000 / 60; // 60 FPS cap when perf mode is on
 let lastFrameTime = 0;
 
+// ─── Platform / browser detection ────────────────────────────────────
+// Used at first-visit to seed sensible defaults. Mac → high-DPR retina
+// with often-thermally-throttled GPUs. Safari → significantly slower
+// WebGL pipeline than Chrome/Firefox, deserves stricter limits.
+const ua = navigator.userAgent || '';
+const platform = navigator.platform || '';
+const IS_MAC     = /Mac|iPhone|iPad/i.test(platform) || /Mac OS X/i.test(ua);
+const IS_SAFARI  = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
+
 // Heightmap throttle — the per-frame video → voxel rebuild was the
 // single most CPU-heavy thing in the animate loop. Videos rarely tick
 // faster than 30 fps, so capping the rebuild rate to ~30 Hz halves
 // CPU work on 60 Hz displays and cuts it by ~4× on 144 Hz Macs.
 const HEIGHTMAP_INTERVAL_MS = 1000 / 30;
 let lastHeightmapTime = 0;
+
+// ─── Idle-FPS throttle ───────────────────────────────────────────────
+// When the camera is sitting still and nothing animated is on-screen,
+// drop the render loop from 60 Hz to ~10 Hz. As soon as the user does
+// anything (orbit drag, scroll, slider tweak, key press, gizmo drag),
+// wakeUntil is bumped forward and we run at full FPS for 500 ms after.
+//
+// What forces full FPS regardless of wake state:
+//   • Auto-Rotate scene is on
+//   • A video is playing in heightmap / model mapping
+//   • TransformControls gizmo is being dragged
+const IDLE_INTERVAL_MS = 1000 / 10;
+const WAKE_DURATION_MS = 500;
+let wakeUntil = 0;
+function requestWake() { wakeUntil = performance.now() + WAKE_DURATION_MS; }
 const perfModeEl = document.getElementById('perf-mode');
 
 function applyPerfMode() {
@@ -2541,19 +2565,29 @@ function setupUIEventListeners() {
   }
 
   // Performance Mode — persisted across reloads.
-  // First-visit auto-detect: high-DPR devices (Retina Macs, high-end
-  // Windows, almost all phones/tablets) get Perf Mode ON by default.
-  // Their GPUs have to shade 4× more pixels than a 1x desktop, which
-  // is what makes the app feel laggy on Macs out of the box. The user
-  // can still toggle it off in the Renderer panel and that choice is
-  // remembered. Returning visitors keep whatever they chose.
+  // First-visit auto-detect cascade:
+  //   • Safari (any OS)            → Perf Mode ON  + density 20 (slowest WebGL)
+  //   • Mac (Chrome/Firefox)       → Perf Mode ON  + density 24 (Retina shade tax)
+  //   • Other high-DPR (Win/phone) → Perf Mode ON  + density default
+  //   • Standard desktop 1x        → Perf Mode OFF + density default
+  // Returning visitors keep whatever they last chose.
   const savedPerf = localStorage.getItem('everything-lego-perf-mode');
   const isHighDpr = (window.devicePixelRatio || 1) >= 2;
-  if (savedPerf === null) {
-    // First visit — auto-enable on high-DPR.
-    perfMode = isHighDpr;
-    if (isHighDpr) {
-      console.info('[Everything-Lego] Auto-enabled Performance Mode (devicePixelRatio ≥ 2). Toggle in Renderer settings to disable.');
+  const isFirstVisit = (savedPerf === null);
+  if (isFirstVisit) {
+    perfMode = isHighDpr || IS_SAFARI;
+    // Auto-lower the default voxel density so the first heightmap voxelization
+    // doesn't pin Mac/Safari users' CPUs. They can still drag it back up.
+    if (IS_SAFARI) {
+      blockResolution.value = '20';
+      valBlockResolution.textContent = '20';
+      console.info('[Everything-Lego] Safari detected — applied stricter defaults (Perf Mode on, density 20).');
+    } else if (IS_MAC) {
+      blockResolution.value = '24';
+      valBlockResolution.textContent = '24';
+      console.info('[Everything-Lego] Mac detected — applied gentle defaults (Perf Mode on, density 24).');
+    } else if (isHighDpr) {
+      console.info('[Everything-Lego] High-DPR detected — Performance Mode auto-enabled.');
     }
   } else {
     perfMode = savedPerf === '1';
@@ -2568,6 +2602,23 @@ function setupUIEventListeners() {
   }
   // Apply once at startup so the saved/auto state takes effect immediately.
   applyPerfMode();
+
+  // ─── Idle-FPS wake listeners ─────────────────────────────────────────
+  // Anything that means "the user is doing something / something needs to
+  // update visibly" bumps wakeUntil. Pointer/keyboard events are bound
+  // on window so they catch sidebar interactions too, not just the canvas.
+  if (controls) {
+    controls.addEventListener('change', requestWake);
+    controls.addEventListener('start',  requestWake);
+    controls.addEventListener('end',    requestWake);
+  }
+  if (transformControls) {
+    transformControls.addEventListener('change', requestWake);
+    transformControls.addEventListener('dragging-changed', requestWake);
+  }
+  ['pointerdown','pointermove','wheel','keydown','touchstart'].forEach((ev) => {
+    window.addEventListener(ev, requestWake, { passive: true });
+  });
 
   // 3. Scene Background Controls
   sceneBgType.addEventListener('change', updateSceneBackground);
@@ -4436,21 +4487,33 @@ function onWindowResize() {
 function animate() {
   requestAnimationFrame(animate);
 
-  // Perf-mode frame cap — bail early on excess rAF ticks (144Hz → ~60Hz).
-  // Subtract 1ms tolerance so we don't drop occasional frames to 30Hz on
-  // displays whose refresh interval doesn't divide cleanly into 16.67ms.
-  if (perfMode) {
-    const now = performance.now();
-    if (now - lastFrameTime < PERF_FRAME_MS - 1) return;
-    lastFrameTime = now;
-  }
+  // ─── Tiered frame budget ───────────────────────────────────────────
+  // Three states, in priority order:
+  //   1. mustRender  → something animated is on-screen, run at full FPS
+  //      (60 in perf mode, uncapped otherwise). Triggered by: auto-rotate,
+  //      playing video, gizmo dragging.
+  //   2. awake       → user just did something. Same as mustRender but
+  //      auto-decays after WAKE_DURATION_MS of silence.
+  //   3. idle        → nothing animated, no user activity for >0.5s.
+  //      Drop to 10 FPS so the GPU stops burning power on a static frame.
+  const now = performance.now();
+  const videoPlaying = isMediaLoaded && loadedMediaType === 'video'
+    && loadedMediaElement && !loadedMediaElement.paused;
+  const gizmoDragging = transformControls && transformControls.dragging;
+  const mustRender = (controls && controls.autoRotate) || videoPlaying || gizmoDragging;
+  const awake = now < wakeUntil;
+
+  const frameBudgetMs = (mustRender || awake)
+    ? (perfMode ? PERF_FRAME_MS : 0)  // 60 FPS in perf mode, uncapped otherwise
+    : IDLE_INTERVAL_MS;                // 10 FPS when idle
+  if (frameBudgetMs > 0 && now - lastFrameTime < frameBudgetMs - 1) return;
+  lastFrameTime = now;
 
   // ----- 2D filter mode: bypass the entire Three.js pipeline -----
   if (viewMode === '2d') {
     // For video, re-render at ~30fps. Static images draw once on mode/slider
     // changes — no need to redraw every frame.
     if (isMediaLoaded && loadedMediaType === 'video' && !loadedMediaElement.paused) {
-      const now = performance.now();
       if (now - last2DRenderTime > 33) {
         // Keep sidebar preview alive
         mediaPreviewCanvas.width = 60;
@@ -4511,7 +4574,6 @@ function animate() {
       //     the entire grid 60-144 times per second was burning CPU on
       //     unchanged frames. Big win on Retina Macs running at 60+ Hz.
       if (mediaMapping.value === 'heightmap') {
-        const now = performance.now();
         if (now - lastHeightmapTime >= HEIGHTMAP_INTERVAL_MS) {
           lastHeightmapTime = now;
           updateBlockHeightmap();
