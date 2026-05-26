@@ -794,6 +794,13 @@ let useWebGPU = false;
 let perfMode = false;
 const PERF_FRAME_MS = 1000 / 60; // 60 FPS cap when perf mode is on
 let lastFrameTime = 0;
+
+// Heightmap throttle — the per-frame video → voxel rebuild was the
+// single most CPU-heavy thing in the animate loop. Videos rarely tick
+// faster than 30 fps, so capping the rebuild rate to ~30 Hz halves
+// CPU work on 60 Hz displays and cuts it by ~4× on 144 Hz Macs.
+const HEIGHTMAP_INTERVAL_MS = 1000 / 30;
+let lastHeightmapTime = 0;
 const perfModeEl = document.getElementById('perf-mode');
 
 function applyPerfMode() {
@@ -2533,18 +2540,33 @@ function setupUIEventListeners() {
     textRemoveBtn.addEventListener('click', removeTextMesh);
   }
 
-  // Performance Mode — persisted across reloads
-  const savedPerf = localStorage.getItem('everything-lego-perf-mode') === '1';
-  perfMode = savedPerf;
+  // Performance Mode — persisted across reloads.
+  // First-visit auto-detect: high-DPR devices (Retina Macs, high-end
+  // Windows, almost all phones/tablets) get Perf Mode ON by default.
+  // Their GPUs have to shade 4× more pixels than a 1x desktop, which
+  // is what makes the app feel laggy on Macs out of the box. The user
+  // can still toggle it off in the Renderer panel and that choice is
+  // remembered. Returning visitors keep whatever they chose.
+  const savedPerf = localStorage.getItem('everything-lego-perf-mode');
+  const isHighDpr = (window.devicePixelRatio || 1) >= 2;
+  if (savedPerf === null) {
+    // First visit — auto-enable on high-DPR.
+    perfMode = isHighDpr;
+    if (isHighDpr) {
+      console.info('[Everything-Lego] Auto-enabled Performance Mode (devicePixelRatio ≥ 2). Toggle in Renderer settings to disable.');
+    }
+  } else {
+    perfMode = savedPerf === '1';
+  }
   if (perfModeEl) {
-    perfModeEl.checked = savedPerf;
+    perfModeEl.checked = perfMode;
     perfModeEl.addEventListener('change', (e) => {
       perfMode = e.target.checked;
       localStorage.setItem('everything-lego-perf-mode', perfMode ? '1' : '0');
       applyPerfMode();
     });
   }
-  // Apply once at startup so the saved state takes effect immediately.
+  // Apply once at startup so the saved/auto state takes effect immediately.
   applyPerfMode();
 
   // 3. Scene Background Controls
@@ -4485,8 +4507,15 @@ function animate() {
 
       // 2b. Update heightmap voxels from the latest video frame.
       //     Independent of Block Mode — heightmap is its own display mode.
+      //     Throttled to ~30 Hz: videos play at 24-30 fps, so recomputing
+      //     the entire grid 60-144 times per second was burning CPU on
+      //     unchanged frames. Big win on Retina Macs running at 60+ Hz.
       if (mediaMapping.value === 'heightmap') {
-        updateBlockHeightmap();
+        const now = performance.now();
+        if (now - lastHeightmapTime >= HEIGHTMAP_INTERVAL_MS) {
+          lastHeightmapTime = now;
+          updateBlockHeightmap();
+        }
       }
     }
   }
